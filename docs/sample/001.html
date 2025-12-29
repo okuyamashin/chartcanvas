@@ -1,0 +1,70 @@
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Sample</title>
+        <script src="./chartcanvas.js"></script>
+        <script>
+            window.addEventListener('DOMContentLoaded', () => {
+                const chart_div = document.getElementById('chart_div');
+                const chart = new ChartCanvas(chart_div);
+                chart.size(1024, 600); //Default is 1024x600
+                const dateChart = chart.addDateChart();
+                dateChart.xAxisTitle = '日付';
+                dateChart.yAxisTitle = '売上';
+                dateChart.yAxisScale = '万円';
+                dateChart.yAxisFormat = '#,##0';
+                dateChart.title = '売上推移';
+                dateChart.subtitle = '2025/01/01 - 2025/01/09';
+                dateChart.secondAxis = true;
+                dateChart.secondAxisTitle = '売上構成比';
+                dateChart.secondAxisScale = '%'
+                dateChart.secondAxisFormat = '#,##0%';
+
+                const firstLine = dateChart.addLine({
+                    title: '売上',
+                    color: 'red',
+                    lineWidth: 2,
+                    lineType: 'solid',
+                    lineDash: [],
+                    lineDashOffset: 0,
+                    lineDashArray: [],
+                    lineDashOffset: 0
+                });
+                firstLine.addData('20250101',20000);
+                firstLine.addData('20250102',21000);
+                firstLine.addData('20250103',22000);
+                firstLine.addData('20250104',23000);
+                firstLine.addData('20250105',24000);
+                firstLine.addData('20250106',25000);
+                firstLine.addData('20250107',26000);
+                firstLine.addData('20250108',27000,"This day is holiday"); //add tooltip text
+                firstLine.addData('20250109',24000);
+                //...normally add data by loop
+                const secondLine = dateChart.addBar(
+                    {
+                        title: '売上構成比',
+                        color: 'blue',
+                        secondAxis: true
+                    }
+                );
+                secondLine.addRatioData('20250101',20000,500000); //calculate by first argument / second argument
+                secondLine.addRatioData('20250102',21000,510000);
+                secondLine.addRatioData('20250103',22000,520000);
+                secondLine.addRatioData('20250104',23000,530000);
+                secondLine.addRatioData('20250105',24000,540000,"tool tip text");
+                secondLine.addRatioData('20250106',25000,550000);
+                secondLine.addRatioData('20250107',26000,560000);
+                secondLine.addRatioData('20250108',27000,570000);
+                secondLine.addRatioData('20250109',28000,580000);
+                //...normally add data by loop
+
+                chart.render();
+            });
+        </script>
+    </head>
+    <body>
+        <h1>Sample</h1>
+        <div id="chart_div"></div>
+    </body>
+</html>

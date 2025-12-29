@@ -1,0 +1,43 @@
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Sample</title>
+        <script src="./chartcanvas.js"></script>
+        <script>
+            window.addEventListener('DOMContentLoaded', async () => {
+                
+                const chart_div = document.getElementById('chart_div');
+                const chart = new ChartCanvas(chart_div);
+                chart.size(1024, 600); //Default is 1024x600
+                const dateChart = chart.addDateChart();
+                dateChart.xAxisTitle = '日付';
+                dateChart.yAxisTitle = '売上';
+                dateChart.yAxisScale = '万円';
+                dateChart.yAxisFormat = '#,##0';
+                dateChart.title = '売上推移';
+                dateChart.subtitle = '2025/01/01 - 2025/01/09';
+
+                const loader = dateChart.tsvLoader('https://sample.com/data.tsv');
+                loader.dateTitle = '日付';
+                loader.valueTitle = '売上';
+                loader.groupTitle = '店舗名';
+
+                try {
+                    // loader.load()でTSVファイルを読み込み、awaitで待つ
+                    await loader.load();
+                    // データの読み込みが完了したらrender()を呼び出す
+                    chart.render();
+                } catch (error) {
+                    console.error('TSVファイルの読み込みエラー:', error);
+                    // エラー時も空のグラフを表示
+                    chart.render();
+                }
+            });
+        </script>
+    </head>
+    <body>
+        <h1>Sample</h1>
+        <div id="chart_div"></div>
+    </body>
+</html>
