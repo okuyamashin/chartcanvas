@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Basic ChartCanvas Test</title>
+    <script src="/chartcanvas.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        #chart_div {
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>ChartCanvas 基本テスト</h1>
+    <p>render()を呼び出すと枠だけのSVGが表示されます。</p>
+    <button onclick="renderChart()">Render</button>
+    <div id="chart_div"></div>
+
+    <script>
+        const chart_div = document.getElementById('chart_div');
+        const chart = new ChartCanvas(chart_div);
+        chart.size(1024, 600);
+
+        function renderChart() {
+            chart.render();
+        }
+
+        // ページ読み込み時に自動でレンダリング
+        window.addEventListener('DOMContentLoaded', () => {
+            chart.render();
+        });
+    </script>
+</body>
+</html>
+

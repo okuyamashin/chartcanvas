@@ -386,6 +386,28 @@ const server = http.createServer((req, res) => {
         return;
     }
     
+    // /stopエンドポイントでサーバーを停止
+    if (filePath === '/stop') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(`
+            <html>
+                <head><title>Server Stopped</title></head>
+                <body>
+                    <h1>Server Stopped</h1>
+                    <p>The server is shutting down...</p>
+                </body>
+            </html>
+        `, 'utf-8');
+        console.log('\nServer shutdown requested via /stop endpoint');
+        setTimeout(() => {
+            server.close(() => {
+                console.log('Server closed');
+                process.exit(0);
+            });
+        }, 100);
+        return;
+    }
+    
     // chartcanvas.jsの場合は動的にバンドルを生成
     if (filePath === '/chartcanvas.js') {
         try {
@@ -463,5 +485,6 @@ server.listen(PORT, () => {
     console.log(`  - http://localhost:${PORT}/002.html`);
     console.log(`  - http://localhost:${PORT}/data.tsv`);
     console.log(`  - http://localhost:${PORT}/chartcanvas.js (bundled from src/)`);
+    console.log(`  - http://localhost:${PORT}/stop (stop server)`);
 });
 
