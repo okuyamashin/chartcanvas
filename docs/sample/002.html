@@ -3,7 +3,7 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Sample</title>
-        <script src="../chartcanvas.js"></script>
+        <script src="../../chartcanvas.js"></script>
         <script>
             window.addEventListener('DOMContentLoaded', async () => {
                 
@@ -21,6 +21,9 @@
                 dateChart.secondAxisTitle = '客数';
                 dateChart.secondAxisScale = '人';
                 dateChart.secondAxisFormat = '#,##0';
+                // 日付形式を指定（'YYYYMMDD', 'YYYY-MM-DD', 'YYYY/MM/DD', 'auto'）
+                // 'auto'の場合は自動検出（デフォルト）
+                dateChart.dateFormat = 'auto';
 
                 // 事前に系列を追加
                 const salesLine = dateChart.addLine({

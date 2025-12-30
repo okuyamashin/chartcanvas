@@ -89,7 +89,8 @@ function build() {
         'window.DateChart = DateChart;\n' +
         'window.LineSeries = LineSeries;\n' +
         'window.BarSeries = BarSeries;\n' +
-        'window.TSVLoader = TSVLoader;\n';
+        'window.TSVLoader = TSVLoader;\n' +
+        'window.normalizeDate = normalizeDate;\n';
     
     // ファイルを書き込む
     writeFile(outputPath, integratedContent);
