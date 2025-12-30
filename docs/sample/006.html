@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ヒストグラムサンプル（複数店舗）</title>
+    <script src="../../chartcanvas.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        #chart_div {
+            border: 1px solid #ccc;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>ヒストグラムサンプル（複数店舗）</h1>
+    <p>TSVファイルから複数店舗の生データを読み込んで、店舗別にヒストグラムを表示します（提案3）。</p>
+    
+    <div id="chart_div"></div>
+
+    <script>
+        window.addEventListener('DOMContentLoaded', async () => {
+            const chart_div = document.getElementById('chart_div');
+            const chart = new ChartCanvas(chart_div);
+            chart.size(1024, 600);
+            chart.title = '売上の分布（店舗別）';
+            chart.subtitle = '各店舗の売上データの分布を比較';
+
+            const histogram = chart.addHistogram();
+            histogram.xAxisTitle = '売上';
+            histogram.yAxisTitle = '頻度';
+            histogram.xAxisFormat = '#,##0';
+            histogram.yAxisFormat = '#,##0';
+            histogram.title = '売上の分布（店舗別）';
+            histogram.subtitle = '各店舗の売上データの分布を比較';
+            
+            // ベジェ曲線モードを有効化
+            histogram.curveMode = true;
+
+            // TSVローダーを使用してデータを読み込む
+            const loader = histogram.tsvLoader('./data-histogram-multi-store.tsv');
+            loader.valueTitle = '値';
+            loader.groupTitle = '店舗名'; // 提案3: グループ列を指定
+
+            try {
+                await loader.load();
+                chart.render();
+            } catch (error) {
+                console.error('TSVファイルの読み込みエラー:', error);
+                chart.render();
+            }
+        });
+    </script>
+</body>
+</html>
+

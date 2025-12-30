@@ -431,9 +431,54 @@ class HistogramTSVLoader {
             return;
         }
 
-        // 提案3: グループ別ヒストグラム（後で実装）
-        // 現時点ではエラーを出す
-        throw new Error('Group-based histogram (proposal 3) is not yet implemented');
+        // 提案3: グループ別ヒストグラム
+        // グループごとのデータを収集
+        const dataByGroup = new Map(); // Map<groupName, Array<number>>
+        
+        for (let i = 1; i < lines.length; i++) {
+            const columns = lines[i].split('\t');
+            if (columns.length <= valueIndex) {
+                continue;
+            }
+
+            const valueStr = columns[valueIndex].trim();
+            const value = parseFloat(valueStr);
+            if (isNaN(value)) {
+                continue; // 数値でない場合はスキップ
+            }
+
+            const groupName = columns[groupIndex]?.trim() || '';
+            if (!groupName) {
+                continue; // グループ名がない場合はスキップ
+            }
+
+            if (!dataByGroup.has(groupName)) {
+                dataByGroup.set(groupName, []);
+            }
+            dataByGroup.get(groupName).push(value);
+        }
+
+        // グループごとに系列を作成してデータを追加
+        const sortedGroupNames = Array.from(dataByGroup.keys()).sort();
+        let colorIndex = 0;
+
+        for (const groupName of sortedGroupNames) {
+            const values = dataByGroup.get(groupName);
+            
+            // 系列を作成
+            const series = this.histogramChart.addSeries({
+                title: groupName,
+                color: this.seriesColors[colorIndex % this.seriesColors.length],
+                opacity: 0.7
+            });
+
+            // データを追加
+            for (const value of values) {
+                series.addData(value);
+            }
+
+            colorIndex++;
+        }
     }
 }
 
