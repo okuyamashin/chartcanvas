@@ -190,6 +190,7 @@ class LineSeries {
         this.lineWidth = options.lineWidth || 2;
         this.lineType = options.lineType || 'solid';
         this.secondAxis = options.secondAxis || false;
+        this.showMarkers = options.showMarkers || false; // マーカーを表示するかどうか
         this.data = [];
     }
 
@@ -248,6 +249,7 @@ class TSVLoader {
         this.url = url;
         this.dateTitle = '';
         this.groupTitle = '';
+        this.commentTitle = ''; // コメント列名
         // 系列と列名のマッピング: Map<series, columnName> または Map<groupName, Map<series, columnName>>
         this.seriesMap = new Map();
         this.groupSeriesMap = new Map(); // グループ列がある場合用
@@ -310,6 +312,8 @@ class TSVLoader {
         if (this.groupTitle && groupIndex === -1) {
             throw new Error(`Group column "${this.groupTitle}" not found in TSV file`);
         }
+
+        const commentIndex = this.commentTitle ? headers.indexOf(this.commentTitle) : -1;
 
         // 系列と列名のマッピングから列のインデックスを取得
         const seriesColumnMap = new Map(); // Map<series, columnIndex>
@@ -377,17 +381,115 @@ class TSVLoader {
                 if (!dataBySeries.has(series)) {
                     dataBySeries.set(series, []);
                 }
-                dataBySeries.get(series).push({ date: dateFormatted, value });
+                
+                // コメントを取得（コメント列が指定されている場合）
+                const comment = (commentIndex >= 0 && columns[commentIndex]) ? columns[commentIndex].trim() : '';
+                
+                dataBySeries.get(series).push({ date: dateFormatted, value, comment });
             }
         }
 
         // 各系列に対してデータを追加（日付でソート）
         for (const [series, data] of dataBySeries.entries()) {
             data.sort((a, b) => a.date.localeCompare(b.date));
-            for (const item of data) {
-                series.addData(item.date, item.value);
+            
+            // 日付を補完する（開始日から終了日までのすべての日付に対してデータを作成）
+            if (data.length > 0) {
+                const filledData = this.fillMissingDates(data);
+                for (const item of filledData) {
+                    series.addData(item.date, item.value, item.comment || '');
+                }
+            } else {
+                // データがない場合はそのまま追加
+                for (const item of data) {
+                    series.addData(item.date, item.value, item.comment || '');
+                }
             }
         }
+    }
+
+    /**
+     * 日付の欠損を補完する（開始日から終了日までのすべての日付に対してデータを作成）
+     * @param {Array<{date, value, comment}>} data - ソート済みのデータ配列
+     * @returns {Array<{date, value, comment}>} 補完されたデータ配列
+     */
+    fillMissingDates(data) {
+        if (data.length === 0) {
+            return [];
+        }
+
+        const filledData = [];
+        const startDate = data[0].date;
+        const endDate = data[data.length - 1].date;
+
+        // 開始日と終了日をDateオブジェクトに変換
+        const start = this.parseDateToDate(startDate);
+        const end = this.parseDateToDate(endDate);
+
+        // データを日付文字列（YYYYMMDD）をキーとするMapに変換
+        const dataMap = new Map();
+        for (const item of data) {
+            dataMap.set(item.date, item);
+        }
+
+        // 開始日から終了日までのすべての日付を生成
+        const currentDate = new Date(start);
+        let lastValue = null;
+        let lastComment = '';
+
+        while (currentDate <= end) {
+            const dateStr = this.formatDateToString(currentDate);
+            const existingData = dataMap.get(dateStr);
+
+            if (existingData) {
+                // データが存在する場合はその値を使用
+                filledData.push({
+                    date: dateStr,
+                    value: existingData.value,
+                    comment: existingData.comment || ''
+                });
+                lastValue = existingData.value;
+                lastComment = existingData.comment || '';
+            } else {
+                // データが存在しない場合は前の値を使用（前の値の保持）
+                if (lastValue !== null) {
+                    filledData.push({
+                        date: dateStr,
+                        value: lastValue,
+                        comment: ''
+                    });
+                }
+            }
+
+            // 次の日へ
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+
+        return filledData;
+    }
+
+    /**
+     * 日付文字列（YYYYMMDD形式）をDateオブジェクトに変換
+     * @param {string} dateStr - 日付文字列（'YYYYMMDD'形式）
+     * @returns {Date} Dateオブジェクト
+     */
+    parseDateToDate(dateStr) {
+        const year = parseInt(dateStr.substring(0, 4), 10);
+        const month = parseInt(dateStr.substring(4, 6), 10) - 1; // 月は0始まり
+        const day = parseInt(dateStr.substring(6, 8), 10);
+        return new Date(year, month, day);
+    }
+
+    /**
+     * Dateオブジェクトを日付文字列（YYYYMMDD形式）に変換
+     * @param {Date} date - Dateオブジェクト
+     * @returns {string} 日付文字列（'YYYYMMDD'形式）
+     */
+    formatDateToString(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}${month}${day}`;
     }
 }
 

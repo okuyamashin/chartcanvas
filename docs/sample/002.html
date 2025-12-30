@@ -11,7 +11,6 @@
                 const chart = new ChartCanvas(chart_div);
                 chart.size(1024, 600); //Default is 1024x600
                 chart.title = '売上・客数推移';
-                chart.subtitle = '2025/01/01 - 2025/01/31';
 
                 const dateChart = chart.addDateChart();
                 dateChart.xAxisTitle = '日付';
@@ -38,29 +37,144 @@
                     secondAxis: true   // 右軸
                 });
 
-                // TSVローダーに系列と列名を紐づける
-                const loader = dateChart.tsvLoader('./data2.tsv');
-                loader.dateTitle = '日付';
-                loader.commentTitle = 'コメント'; // コメント列を指定
-                loader.addSeries(salesLine, '売上');
-                loader.addSeries(customerBar, '客数');
+                // データファイルの定義
+                const dataFiles = {
+                    '7days': {
+                        file: './data-7days.tsv',
+                        subtitle: '7日分のデータ'
+                    },
+                    '1month': {
+                        file: './data2.tsv',
+                        subtitle: '1ヶ月分のデータ'
+                    },
+                    '3months': {
+                        file: './data-3months.tsv',
+                        subtitle: '3ヶ月分のデータ（年またぎ）'
+                    },
+                    '1year': {
+                        file: './data-1year.tsv',
+                        subtitle: '1年分のデータ'
+                    }
+                };
 
-                try {
-                    // loader.load()でTSVファイルを読み込み、awaitで待つ
-                    await loader.load();
-                    
-                    // データの読み込みが完了したらrender()を呼び出す
-                    chart.render();
-                } catch (error) {
-                    console.error('TSVファイルの読み込みエラー:', error);
-                    // エラー時も空のグラフを表示
-                    chart.render();
+                // データを読み込んでレンダリングする関数
+                async function loadAndRender(dataKey) {
+                    const dataConfig = dataFiles[dataKey];
+                    if (!dataConfig) {
+                        console.error('無効なデータキー:', dataKey);
+                        return;
+                    }
+
+                    chart.subtitle = dataConfig.subtitle;
+
+                    // TSVローダーに系列と列名を紐づける
+                    const loader = dateChart.tsvLoader(dataConfig.file);
+                    loader.dateTitle = '日付';
+                    loader.commentTitle = 'コメント'; // コメント列を指定
+                    loader.addSeries(salesLine, '売上');
+                    loader.addSeries(customerBar, '客数');
+
+                    try {
+                        // loader.load()でTSVファイルを読み込み、awaitで待つ
+                        await loader.load();
+                        
+                        // データの読み込みが完了したらrender()を呼び出す
+                        chart.render();
+                    } catch (error) {
+                        console.error('TSVファイルの読み込みエラー:', error);
+                        // エラー時も空のグラフを表示
+                        chart.render();
+                    }
                 }
+
+                // セレクトボックスのイベントハンドラ
+                const dataSelect = document.getElementById('dataSelect');
+                dataSelect.addEventListener('change', async (e) => {
+                    await loadAndRender(e.target.value);
+                });
+
+                // 初期データを読み込む
+                await loadAndRender('7days');
+
+                // SVGダウンロードボタンのイベントハンドラ
+                const downloadBtn = document.getElementById('downloadBtn');
+                downloadBtn.addEventListener('click', () => {
+                    const dataKey = dataSelect.value;
+                    const dataConfig = dataFiles[dataKey];
+                    const filename = `chart-${dataKey}-${new Date().toISOString().slice(0, 10)}.svg`;
+                    chart.downloadSVG(filename);
+                });
+
+                // SVGアップロードボタンのイベントハンドラ
+                const uploadBtn = document.getElementById('uploadBtn');
+                const uploadStatus = document.getElementById('uploadStatus');
+                uploadBtn.addEventListener('click', async () => {
+                    uploadBtn.disabled = true;
+                    uploadStatus.textContent = 'アップロード中...';
+                    uploadStatus.style.color = '#0066cc';
+                    
+                    try {
+                        const dataKey = dataSelect.value;
+                        const filename = `chart-${dataKey}-${new Date().toISOString().slice(0, 10)}.svg`;
+                        const message = await chart.uploadSVG(filename);
+                        uploadStatus.textContent = `✓ ${message}`;
+                        uploadStatus.style.color = '#00aa00';
+                    } catch (error) {
+                        uploadStatus.textContent = `✗ エラー: ${error.message}`;
+                        uploadStatus.style.color = '#cc0000';
+                        console.error('アップロードエラー:', error);
+                    } finally {
+                        uploadBtn.disabled = false;
+                    }
+                });
             });
         </script>
+        <style>
+            .button-group {
+                margin: 20px 0;
+                display: flex;
+                gap: 10px;
+                align-items: center;
+            }
+            .button-group button {
+                padding: 8px 16px;
+                font-size: 14px;
+                cursor: pointer;
+                border: 1px solid #0066cc;
+                background-color: #0066cc;
+                color: white;
+                border-radius: 4px;
+            }
+            .button-group button:hover:not(:disabled) {
+                background-color: #0052a3;
+            }
+            .button-group button:disabled {
+                background-color: #cccccc;
+                border-color: #cccccc;
+                cursor: not-allowed;
+            }
+            #uploadStatus {
+                font-size: 14px;
+                margin-left: 10px;
+            }
+        </style>
     </head>
     <body>
         <h1>Sample</h1>
+        <div style="margin-bottom: 20px;">
+            <label for="dataSelect">データを選択: </label>
+            <select id="dataSelect" style="padding: 5px 10px; font-size: 14px;">
+                <option value="7days">7日分のデータ</option>
+                <option value="1month">1ヶ月分のデータ</option>
+                <option value="3months">3ヶ月分のデータ（年またぎ）</option>
+                <option value="1year">1年分のデータ</option>
+            </select>
+        </div>
+        <div class="button-group">
+            <button id="downloadBtn">SVGをダウンロード</button>
+            <button id="uploadBtn">SVGをサーバーにアップロード</button>
+            <span id="uploadStatus"></span>
+        </div>
         <div id="chart_div"></div>
     </body>
 </html>

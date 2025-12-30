@@ -250,6 +250,96 @@ class ChartCanvas {
 
         // コンテナに追加
         this.container.appendChild(svg);
+        
+        // 現在のSVG要素を保存（後で取得できるように）
+        this.currentSvg = svg;
+    }
+
+    /**
+     * 現在のSVG要素を取得
+     * @returns {SVGElement|null} SVG要素
+     */
+    getSVGElement() {
+        return this.container.querySelector('svg') || this.currentSvg || null;
+    }
+
+    /**
+     * SVGを文字列として取得
+     * @returns {string} SVGの文字列表現
+     */
+    getSVGString() {
+        const svg = this.getSVGElement();
+        if (!svg) {
+            return '';
+        }
+        
+        // SVG要素をクローンして、スタイル属性を追加
+        const clonedSvg = svg.cloneNode(true);
+        
+        // XML宣言とDOCTYPEを追加して完全なSVGファイルにする
+        const serializer = new XMLSerializer();
+        const svgString = serializer.serializeToString(clonedSvg);
+        
+        // XML宣言を追加
+        return '<?xml version="1.0" encoding="UTF-8"?>\n' + svgString;
+    }
+
+    /**
+     * SVGをファイルとしてダウンロード
+     * @param {string} filename - ファイル名（デフォルト: 'chart.svg'）
+     */
+    downloadSVG(filename = 'chart.svg') {
+        const svgString = this.getSVGString();
+        if (!svgString) {
+            console.error('SVGが生成されていません。先にrender()を呼び出してください。');
+            return;
+        }
+        
+        // Blobを作成
+        const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        
+        // ダウンロードリンクを作成してクリック
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // URLを解放
+        URL.revokeObjectURL(url);
+    }
+
+    /**
+     * SVGをサーバーにアップロード
+     * @param {string} filename - サーバー側のファイル名（デフォルト: 'chart.svg'）
+     * @returns {Promise<string>} アップロード結果のメッセージ
+     */
+    async uploadSVG(filename = 'chart.svg') {
+        const svgString = this.getSVGString();
+        if (!svgString) {
+            throw new Error('SVGが生成されていません。先にrender()を呼び出してください。');
+        }
+        
+        // FormDataを作成
+        const formData = new FormData();
+        const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+        formData.append('svg', blob, filename);
+        
+        // サーバーにアップロード
+        const response = await fetch('/upload-svg', {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`アップロードに失敗しました: ${response.status} ${errorText}`);
+        }
+        
+        const result = await response.json();
+        return result.message || 'アップロード成功';
     }
 
     /**
@@ -424,7 +514,7 @@ class ChartCanvas {
 
         const dateChart = this.dateCharts[0];
         const tickLineLength = 5; // 目盛り線の長さ
-        const fontSize = ChartCanvas.FONT_SIZE_NORMAL;
+        const fontSize = ChartCanvas.FONT_SIZE_SMALL;
         const labelMargin = 5; // ラベルと目盛り線の間隔
 
         // X軸の線を描画: (0,0)から(1,0)へ
@@ -554,7 +644,7 @@ class ChartCanvas {
 
         const dateChart = this.dateCharts[0];
         const tickLineLength = 5; // 目盛り線の長さ
-        const fontSize = ChartCanvas.FONT_SIZE_NORMAL;
+        const fontSize = ChartCanvas.FONT_SIZE_SMALL;
         const labelMargin = 5; // ラベルと目盛り線の間隔
 
         // Y軸の線を描画: (0,0)から(0,1)へ
@@ -642,7 +732,7 @@ class ChartCanvas {
         }
 
         const tickLineLength = 5; // 目盛り線の長さ
-        const fontSize = ChartCanvas.FONT_SIZE_NORMAL;
+        const fontSize = ChartCanvas.FONT_SIZE_SMALL;
         const labelMargin = 5; // ラベルと目盛り線の間隔
 
         // 右スケールの線を描画: (1,0)から(1,1)へ
@@ -803,11 +893,21 @@ class ChartCanvas {
     /**
      * 日付文字列（YYYYMMDD形式）を数値に変換
      * @param {string} dateStr - 日付文字列（'YYYYMMDD'形式）
-     * @returns {number} 日付の数値表現
+     * @returns {number} 日付の数値表現（基準日からの経過日数）
      */
     parseDate(dateStr) {
-        // YYYYMMDD形式を数値に変換（例: '20250101' -> 20250101）
-        return parseInt(dateStr, 10);
+        // YYYYMMDD形式を解析
+        const year = parseInt(dateStr.substring(0, 4), 10);
+        const month = parseInt(dateStr.substring(4, 6), 10) - 1; // 月は0始まり
+        const day = parseInt(dateStr.substring(6, 8), 10);
+        
+        // Dateオブジェクトを作成して、基準日（2000-01-01）からの経過日数に変換
+        const date = new Date(year, month, day);
+        const baseDate = new Date(2000, 0, 1); // 基準日: 2000-01-01
+        const diffTime = date.getTime() - baseDate.getTime();
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        
+        return diffDays;
     }
 
     /**
