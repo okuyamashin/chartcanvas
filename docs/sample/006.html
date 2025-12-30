@@ -40,6 +40,10 @@
             
             // ベジェ曲線モードを有効化
             histogram.curveMode = true;
+            
+            // グリッド線を有効化
+            histogram.xGrid = true; // X軸のグリッド線を表示
+            histogram.yGrid = true; // Y軸のグリッド線を表示
 
             // TSVローダーを使用してデータを読み込む
             const loader = histogram.tsvLoader('./data-histogram-multi-store.tsv');

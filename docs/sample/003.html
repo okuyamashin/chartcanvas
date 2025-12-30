@@ -20,6 +20,10 @@
                 // 日付形式を指定（'YYYYMMDD', 'YYYY-MM-DD', 'YYYY/MM/DD', 'auto'）
                 // 'auto'の場合は自動検出（デフォルト）
                 dateChart.dateFormat = 'auto';
+                
+                // グリッド線を有効化
+                dateChart.xGrid = true; // X軸のグリッド線を表示
+                dateChart.yGrid = true; // Y軸のグリッド線を表示
 
                 // TSVローダーを使用してデータを読み込む
                 const loader = dateChart.tsvLoader('./data.tsv');
@@ -34,11 +38,68 @@
                     showMarkers: true
                 };
 
+                console.log('loader設定:', {
+                    dateTitle: loader.dateTitle,
+                    valueTitle: loader.valueTitle,
+                    groupTitle: loader.groupTitle,
+                    commentTitle: loader.commentTitle,
+                    seriesType: loader.seriesType
+                });
+
                 try {
-                    await loader.load();
+                    console.log('TSVファイルの読み込み開始...');
+                    console.log('loader:', loader);
+                    console.log('loader.dateTitle:', loader.dateTitle);
+                    console.log('loader.valueTitle:', loader.valueTitle);
+                    console.log('loader.groupTitle:', loader.groupTitle);
+                    
+                    // TSVファイルを直接読み込んで確認
+                    const response = await fetch('./data.tsv');
+                    const text = await response.text();
+                    console.log('TSVファイル内容（最初の5行）:', text.split('\n').slice(0, 5));
+                    const lines = text.split('\n').filter(line => line.trim() !== '');
+                    console.log('TSV行数:', lines.length);
+                    if (lines.length > 0) {
+                        const headers = lines[0].split('\t');
+                        console.log('ヘッダー:', headers);
+                        console.log('dateIndex:', headers.indexOf('日付'));
+                        console.log('valueIndex:', headers.indexOf('売上'));
+                        console.log('groupIndex:', headers.indexOf('店舗名'));
+                        if (lines.length > 1) {
+                            const firstDataLine = lines[1].split('\t');
+                            console.log('最初のデータ行:', firstDataLine);
+                            console.log('最初のデータ行の列数:', firstDataLine.length);
+                            if (firstDataLine.length > 2) {
+                                console.log('groupName (index 2):', firstDataLine[2]);
+                            }
+                        }
+                    }
+                    
+                    const loadPromise = loader.load();
+                    console.log('load()呼び出し完了、Promise待機中...');
+                    await loadPromise;
+                    console.log('データ読み込み完了');
+                    console.log('dateChart:', dateChart);
+                    console.log('dateChart.lines:', dateChart.lines);
+                    console.log('dateChart.lines.length:', dateChart.lines.length);
+                    console.log('chart.dateCharts:', chart.dateCharts);
+                    console.log('chart.dateCharts.length:', chart.dateCharts ? chart.dateCharts.length : 0);
+                    if (dateChart.lines.length > 0) {
+                        console.log('最初の系列:', dateChart.lines[0]);
+                        console.log('最初の系列のデータ数:', dateChart.lines[0].data.length);
+                        if (dateChart.lines[0].data.length > 0) {
+                            console.log('最初のデータポイント:', dateChart.lines[0].data[0]);
+                        }
+                    } else {
+                        console.warn('警告: 系列が作成されていません');
+                    }
                     chart.render();
+                    console.log('グラフ描画完了');
+                    const plotArea = chart.calculatePlotArea();
+                    console.log('plotArea:', plotArea);
                 } catch (error) {
                     console.error('TSVファイルの読み込みエラー:', error);
+                    console.error('エラースタック:', error.stack);
                     chart.render();
                 }
 

@@ -249,6 +249,9 @@ class ChartCanvas {
                 // 右スケール（副軸）を描画
                 this.renderRightYAxis(svg, plotArea);
 
+                // グリッド線を描画（軸の後、データ系列の前）
+                this.renderDateChartGrid(svg, plotArea);
+
                 // 棒グラフを描画（先に追加した系列が上に来るように、先に描画する）
                 this.renderBars(svg, plotArea);
 
@@ -931,6 +934,95 @@ class ChartCanvas {
             unitText.setAttribute('style', `font-size: ${fontSize}px;`);
             unitText.textContent = `(${dateChart.secondAxisScale})`;
             svg.appendChild(unitText);
+        }
+    }
+
+    /**
+     * DateChartのグリッド線を描画
+     * @param {SVGElement} svg - SVG要素
+     * @param {Object} plotArea - 描画エリアの情報
+     */
+    renderDateChartGrid(svg, plotArea) {
+        if (!plotArea || !this.dateCharts || this.dateCharts.length === 0) {
+            return;
+        }
+
+        const dateChart = this.dateCharts[0];
+        const gridColor = '#e0e0e0'; // 薄いグレー
+        const gridStrokeWidth = 1;
+        const gridDashArray = '2,2'; // 破線
+
+        // X軸のグリッド線を描画
+        if (dateChart.xGrid) {
+            // X軸のスケールラベル位置にグリッド線を描画
+            const dateSet = new Set();
+            for (const line of dateChart.lines) {
+                for (const item of line.data) {
+                    dateSet.add(item.date);
+                }
+            }
+            for (const bar of dateChart.bars) {
+                for (const item of bar.data) {
+                    dateSet.add(item.date);
+                }
+            }
+
+            if (dateSet.size > 0) {
+                const sortedDates = Array.from(dateSet).sort();
+                const minDate = sortedDates[0];
+                const maxDate = sortedDates[sortedDates.length - 1];
+                const minDateValue = this.parseDate(minDate);
+                const maxDateValue = this.parseDate(maxDate);
+                const extendedMinDateValue = minDateValue - 0.5;
+                const extendedMaxDateValue = maxDateValue + 0.5;
+                const extendedDateRange = extendedMaxDateValue - extendedMinDateValue;
+
+                // データの期間に応じてフィルタリング
+                const dateRange = maxDateValue - minDateValue;
+                let datesToRender = sortedDates;
+                if (dateRange >= 60 && dateRange <= 120) {
+                    datesToRender = this.filterDatesForThreeMonths(sortedDates);
+                } else if (dateRange > 120) {
+                    datesToRender = this.filterDatesForOneYear(sortedDates);
+                }
+
+                for (const date of datesToRender) {
+                    const dateValue = this.parseDate(date);
+                    const ratio = extendedDateRange > 0 ? (dateValue - extendedMinDateValue) / extendedDateRange : 0;
+                    const x = plotArea.originX + ratio * plotArea.width;
+
+                    const gridLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    gridLine.setAttribute('x1', x);
+                    gridLine.setAttribute('y1', plotArea.topRightY);
+                    gridLine.setAttribute('x2', x);
+                    gridLine.setAttribute('y2', plotArea.originY);
+                    gridLine.setAttribute('stroke', gridColor);
+                    gridLine.setAttribute('stroke-width', gridStrokeWidth);
+                    gridLine.setAttribute('stroke-dasharray', gridDashArray);
+                    svg.appendChild(gridLine);
+                }
+            }
+        }
+
+        // Y軸のグリッド線を描画（主軸）
+        if (dateChart.yGrid) {
+            const primaryScale = dateChart.calculateYAxisScale(false);
+            const plotHeight = plotArea.height;
+
+            for (const labelValue of primaryScale.labels) {
+                const ratio = primaryScale.max > 0 ? labelValue / primaryScale.max : 0;
+                const y = plotArea.originY - ratio * plotHeight;
+
+                const gridLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                gridLine.setAttribute('x1', plotArea.originX);
+                gridLine.setAttribute('y1', y);
+                gridLine.setAttribute('x2', plotArea.topRightX);
+                gridLine.setAttribute('y2', y);
+                gridLine.setAttribute('stroke', gridColor);
+                gridLine.setAttribute('stroke-width', gridStrokeWidth);
+                gridLine.setAttribute('stroke-dasharray', gridDashArray);
+                svg.appendChild(gridLine);
+            }
         }
     }
 
@@ -1695,6 +1787,9 @@ class ChartCanvas {
         // X軸とY軸を描画
         this.renderHistogramAxes(svg, plotArea, plotWidth, plotHeight);
 
+        // グリッド線を描画（軸の後、データ系列の前）
+        this.renderHistogramGrid(svg, plotArea, plotWidth, plotHeight);
+
         // 各系列のヒストグラムを描画
         for (const series of histogramChart.series) {
             if (series.data.length === 0) continue;
@@ -1887,6 +1982,63 @@ class ChartCanvas {
 
         // 凡例を描画
         this.renderHistogramLegend(svg);
+    }
+
+    /**
+     * HistogramChartのグリッド線を描画
+     * @param {SVGElement} svg - SVG要素
+     * @param {Object} plotArea - 描画エリアの情報
+     * @param {number} plotWidth - 描画エリアの幅
+     * @param {number} plotHeight - 描画エリアの高さ
+     */
+    renderHistogramGrid(svg, plotArea, plotWidth, plotHeight) {
+        if (!plotArea || !this.histogramCharts || this.histogramCharts.length === 0) {
+            return;
+        }
+
+        const histogramChart = this.histogramCharts[0];
+        const gridColor = '#e0e0e0'; // 薄いグレー
+        const gridStrokeWidth = 1;
+        const gridDashArray = '2,2'; // 破線
+
+        // X軸のグリッド線を描画
+        if (histogramChart.xGrid) {
+            const xAxisScale = plotArea.xAxisScale;
+            const dataRange = plotArea.dataRange.max - plotArea.dataRange.min;
+
+            for (const labelValue of xAxisScale.labels) {
+                const xRatio = dataRange > 0 ? (labelValue - plotArea.dataRange.min) / dataRange : 0;
+                const x = plotArea.originX + xRatio * plotWidth;
+
+                const gridLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                gridLine.setAttribute('x1', x);
+                gridLine.setAttribute('y1', plotArea.topRightY);
+                gridLine.setAttribute('x2', x);
+                gridLine.setAttribute('y2', plotArea.originY);
+                gridLine.setAttribute('stroke', gridColor);
+                gridLine.setAttribute('stroke-width', gridStrokeWidth);
+                gridLine.setAttribute('stroke-dasharray', gridDashArray);
+                svg.appendChild(gridLine);
+            }
+        }
+
+        // Y軸のグリッド線を描画
+        if (histogramChart.yGrid) {
+            for (const label of plotArea.yAxisScale.labels) {
+                const yRatio = label / plotArea.yAxisScale.max;
+                const y = plotArea.originY - yRatio * plotHeight;
+
+                const gridLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                gridLine.setAttribute('x1', plotArea.originX);
+                gridLine.setAttribute('y1', y);
+                gridLine.setAttribute('x2', plotArea.topRightX);
+                gridLine.setAttribute('y2', y);
+                gridLine.setAttribute('stroke', gridColor);
+                gridLine.setAttribute('stroke-width', gridStrokeWidth);
+                gridLine.setAttribute('stroke-dasharray', gridDashArray);
+                svg.appendChild(gridLine);
+            }
+        }
     }
 
     /**

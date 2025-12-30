@@ -28,6 +28,10 @@ class HistogramChart {
         this.binAlignment = 'left'; // 'left', 'center', 'right'
         this.curveMode = false; // trueの場合、ベジェ曲線で描画
         
+        // グリッド線の設定
+        this.xGrid = false; // X軸のグリッド線を表示するか（デフォルト: false）
+        this.yGrid = false; // Y軸のグリッド線を表示するか（デフォルト: false）
+        
         // データ系列を保持（グループ別ヒストグラム対応）
         this.series = [];
     }
