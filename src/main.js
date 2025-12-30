@@ -174,7 +174,6 @@ class ChartCanvas {
         svg.setAttribute('width', this.width);
         svg.setAttribute('height', this.height);
         svg.setAttribute('viewBox', `0 0 ${this.width} ${this.height}`);
-        svg.style.border = '1px solid #000';
 
         // 日本語対応の等幅フォントを設定（style要素を追加）
         const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
@@ -214,17 +213,6 @@ class ChartCanvas {
             subtitleText.textContent = this.subtitle;
             svg.appendChild(subtitleText);
         }
-
-        // 枠を描画（矩形）
-        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        rect.setAttribute('x', 0);
-        rect.setAttribute('y', 0);
-        rect.setAttribute('width', this.width);
-        rect.setAttribute('height', this.height);
-        rect.setAttribute('fill', 'none');
-        rect.setAttribute('stroke', '#000');
-        rect.setAttribute('stroke-width', '1');
-        svg.appendChild(rect);
 
         // 凡例を描画
         this.renderLegend(svg);
