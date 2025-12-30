@@ -1,0 +1,221 @@
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>店舗別売上推移</title>
+        <script src="../chartcanvas.js"></script>
+        <script>
+            window.addEventListener('DOMContentLoaded', async () => {
+                
+                const chart_div = document.getElementById('chart_div');
+                const chart = new ChartCanvas(chart_div);
+                chart.size(1024, 600);
+                chart.title = '店舗別売上推移';
+
+                const dateChart = chart.addDateChart();
+                dateChart.xAxisTitle = '日付';
+                dateChart.yAxisTitle = '売上';
+                dateChart.yAxisScale = '円';
+                dateChart.yAxisFormat = '#,##0';
+
+                // TSVファイルを読み込んで店舗ごとに線グラフを作成
+                async function loadStoreData() {
+                    try {
+                        // TSVファイルを読み込む
+                        const response = await fetch('./data.tsv');
+                        if (!response.ok) {
+                            throw new Error(`Failed to load TSV file: ${response.status} ${response.statusText}`);
+                        }
+                        const text = await response.text();
+                        const lines = text.split('\n').filter(line => line.trim() !== '');
+
+                        if (lines.length === 0) {
+                            throw new Error('TSV file is empty');
+                        }
+
+                        // ヘッダー行を解析
+                        const headerLine = lines[0];
+                        const headers = headerLine.split('\t');
+                        
+                        // 列のインデックスを取得
+                        const dateIndex = headers.indexOf('日付');
+                        const valueIndex = headers.indexOf('売上');
+                        const storeIndex = headers.indexOf('店舗名');
+                        const commentIndex = headers.indexOf('コメント'); // コメント列（オプショナル）
+
+                        if (dateIndex === -1 || valueIndex === -1 || storeIndex === -1) {
+                            throw new Error('Required columns not found in TSV file');
+                        }
+
+                        // 店舗ごとにデータをグループ化
+                        const storeDataMap = new Map(); // Map<店舗名, Array<{date, value, comment}>>
+
+                        for (let i = 1; i < lines.length; i++) {
+                            const line = lines[i].trim();
+                            if (!line) continue;
+
+                            const columns = line.split('\t');
+                            if (columns.length <= Math.max(dateIndex, valueIndex, storeIndex)) {
+                                continue;
+                            }
+
+                            const dateStr = columns[dateIndex]?.trim();
+                            const valueStr = columns[valueIndex]?.trim();
+                            const storeName = columns[storeIndex]?.trim();
+                            const comment = (commentIndex >= 0 && columns[commentIndex]) ? columns[commentIndex].trim() : '';
+
+                            if (!dateStr || !valueStr || !storeName) {
+                                continue;
+                            }
+
+                            // 日付形式をYYYYMMDDに変換（YYYY-MM-DD形式をサポート）
+                            let dateFormatted = dateStr;
+                            if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                                dateFormatted = dateStr.replace(/-/g, '');
+                            }
+
+                            const value = parseFloat(valueStr);
+                            if (isNaN(value)) {
+                                continue;
+                            }
+
+                            if (!storeDataMap.has(storeName)) {
+                                storeDataMap.set(storeName, []);
+                            }
+                            storeDataMap.get(storeName).push({ date: dateFormatted, value, comment });
+                        }
+
+                        // 店舗ごとに線系列を作成
+                        const colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray'];
+                        let colorIndex = 0;
+
+                        // 店舗名でソート（表示順序を固定）
+                        const sortedStoreNames = Array.from(storeDataMap.keys()).sort();
+
+                        for (const storeName of sortedStoreNames) {
+                            const data = storeDataMap.get(storeName);
+                            
+                            // データを日付でソート
+                            data.sort((a, b) => a.date.localeCompare(b.date));
+
+                            // 線系列を作成
+                            const line = dateChart.addLine({
+                                title: storeName,
+                                color: colors[colorIndex % colors.length],
+                                lineWidth: 2,
+                                lineType: 'solid',
+                                showMarkers: true
+                            });
+
+                            // データを追加（コメントも含める）
+                            for (const item of data) {
+                                line.addData(item.date, item.value, item.comment || '');
+                            }
+
+                            colorIndex++;
+                        }
+
+                        // 日付範囲を取得してサブタイトルを設定
+                        if (sortedStoreNames.length > 0) {
+                            const firstStoreData = storeDataMap.get(sortedStoreNames[0]);
+                            if (firstStoreData.length > 0) {
+                                const dates = firstStoreData.map(d => d.date).sort();
+                                const startDate = dates[0];
+                                const endDate = dates[dates.length - 1];
+                                
+                                // YYYYMMDD形式をYYYY/MM/DD形式に変換
+                                const formatDate = (dateStr) => {
+                                    if (dateStr.length === 8) {
+                                        return `${dateStr.slice(0, 4)}/${dateStr.slice(4, 6)}/${dateStr.slice(6, 8)}`;
+                                    }
+                                    return dateStr;
+                                };
+                                
+                                dateChart.subtitle = `${formatDate(startDate)} - ${formatDate(endDate)}`;
+                            }
+                        }
+
+                        // グラフをレンダリング
+                        chart.render();
+                    } catch (error) {
+                        console.error('TSVファイルの読み込みエラー:', error);
+                        // エラー時も空のグラフを表示
+                        chart.render();
+                    }
+                }
+
+                // データを読み込む
+                await loadStoreData();
+
+                // SVGダウンロードボタンのイベントハンドラ
+                const downloadBtn = document.getElementById('downloadBtn');
+                downloadBtn.addEventListener('click', () => {
+                    const filename = `chart-store-sales-${new Date().toISOString().slice(0, 10)}.svg`;
+                    chart.downloadSVG(filename);
+                });
+
+                // SVGアップロードボタンのイベントハンドラ
+                const uploadBtn = document.getElementById('uploadBtn');
+                const uploadStatus = document.getElementById('uploadStatus');
+                uploadBtn.addEventListener('click', async () => {
+                    uploadBtn.disabled = true;
+                    uploadStatus.textContent = 'アップロード中...';
+                    uploadStatus.style.color = '#0066cc';
+                    
+                    try {
+                        const filename = `chart-store-sales-${new Date().toISOString().slice(0, 10)}.svg`;
+                        const message = await chart.uploadSVG(filename);
+                        uploadStatus.textContent = `✓ ${message}`;
+                        uploadStatus.style.color = '#00aa00';
+                    } catch (error) {
+                        uploadStatus.textContent = `✗ エラー: ${error.message}`;
+                        uploadStatus.style.color = '#cc0000';
+                        console.error('アップロードエラー:', error);
+                    } finally {
+                        uploadBtn.disabled = false;
+                    }
+                });
+            });
+        </script>
+        <style>
+            .button-group {
+                margin: 20px 0;
+                display: flex;
+                gap: 10px;
+                align-items: center;
+            }
+            .button-group button {
+                padding: 8px 16px;
+                font-size: 14px;
+                cursor: pointer;
+                border: 1px solid #0066cc;
+                background-color: #0066cc;
+                color: white;
+                border-radius: 4px;
+            }
+            .button-group button:hover:not(:disabled) {
+                background-color: #0052a3;
+            }
+            .button-group button:disabled {
+                background-color: #cccccc;
+                border-color: #cccccc;
+                cursor: not-allowed;
+            }
+            #uploadStatus {
+                font-size: 14px;
+                margin-left: 10px;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>店舗別売上推移</h1>
+        <p>data.tsvから店舗名ごとに線グラフを表示します。</p>
+        <div class="button-group">
+            <button id="downloadBtn">SVGをダウンロード</button>
+            <button id="uploadBtn">SVGをサーバーにアップロード</button>
+            <span id="uploadStatus"></span>
+        </div>
+        <div id="chart_div"></div>
+    </body>
+</html>
+
