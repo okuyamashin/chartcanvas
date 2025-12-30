@@ -886,7 +886,7 @@ class ChartCanvas {
                 // 原点が下なので、1.0 - yRatioで反転
                 const y = plotArea.originY - yRatio * plotArea.height;
 
-                points.push({ x, y });
+                points.push({ x, y, comment: item.tooltip || '' });
             }
 
             if (points.length === 0) {
@@ -915,6 +915,14 @@ class ChartCanvas {
             // 'solid'の場合は何も設定しない（デフォルト）
 
             svg.appendChild(path);
+
+            // コメントを描画
+            for (let j = 0; j < points.length; j++) {
+                const point = points[j];
+                if (point.comment) {
+                    this.renderComment(svg, plotArea, point.x, point.y, point.comment, line.color || 'black');
+                }
+            }
         }
     }
 
@@ -1017,8 +1025,67 @@ class ChartCanvas {
                 rect.setAttribute('stroke', 'none');
 
                 svg.appendChild(rect);
+
+                // コメントを描画
+                if (item.tooltip) {
+                    this.renderComment(svg, plotArea, x, barTop, item.tooltip, bar.color || 'blue');
+                }
             }
         }
+    }
+
+    /**
+     * コメントを描画
+     * @param {SVGElement} svg - SVG要素
+     * @param {Object} plotArea - 描画エリアの情報
+     * @param {number} x - X座標
+     * @param {number} y - Y座標（データポイントの位置）
+     * @param {string} comment - コメントテキスト
+     * @param {string} color - 系列の色
+     */
+    renderComment(svg, plotArea, x, y, comment, color) {
+        if (!comment || comment.trim() === '') {
+            return;
+        }
+
+        const fontSize = ChartCanvas.FONT_SIZE_SMALL;
+        const metrics = this.measureFontMetrics(fontSize);
+        const commentText = comment.trim();
+        const textWidth = this.getTextWidth(commentText, fontSize);
+        
+        // コメントの位置を決定
+        // デフォルトはデータポイントの上
+        let commentX = x;
+        let commentY = y - 10; // データポイントから10px上
+        
+        // グラフの上端に近い場合は下に表示
+        const topMargin = 10;
+        if (commentY < plotArea.topRightY + topMargin) {
+            commentY = y + metrics.height + 5; // データポイントから下に表示
+        }
+        
+        // グラフの左端に近い場合は右にずらす
+        const leftMargin = 5;
+        if (commentX < plotArea.originX + leftMargin) {
+            commentX = plotArea.originX + leftMargin;
+        }
+        
+        // グラフの右端に近い場合は左にずらす
+        const rightMargin = 5;
+        if (commentX + textWidth > plotArea.topRightX - rightMargin) {
+            commentX = plotArea.topRightX - rightMargin - textWidth;
+        }
+        
+        // コメントテキストを描画
+        const commentElement = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        commentElement.setAttribute('class', 'chart-text');
+        commentElement.setAttribute('x', commentX);
+        commentElement.setAttribute('y', commentY);
+        commentElement.setAttribute('text-anchor', 'middle');
+        commentElement.setAttribute('dominant-baseline', 'hanging');
+        commentElement.setAttribute('style', `font-size: ${fontSize}px; fill: ${color};`);
+        commentElement.textContent = commentText;
+        svg.appendChild(commentElement);
     }
 
     /**

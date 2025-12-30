@@ -40,6 +40,7 @@
                 // TSVローダーに系列と列名を紐づける
                 const loader = dateChart.tsvLoader('./data2.tsv');
                 loader.dateTitle = '日付';
+                loader.commentTitle = 'コメント'; // コメント列を指定
                 loader.addSeries(salesLine, '売上');
                 loader.addSeries(customerBar, '客数');
 
