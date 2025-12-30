@@ -1,0 +1,23 @@
+{
+  "chart": {
+    "width": 1024,
+    "height": 600,
+    "title": "Sales Distribution by Store",
+    "subtitle": "Comparing sales data distribution across stores"
+  },
+  "chartType": "histogram",
+  "histogram": {
+    "xAxisTitle": "Sales",
+    "yAxisTitle": "Frequency",
+    "xAxisFormat": "#,##0",
+    "yAxisFormat": "#,##0",
+    "curveMode": true,
+    "xGrid": true,
+    "yGrid": true
+  },
+  "tsv": {
+    "valueTitle": "Value",
+    "groupTitle": "Store"
+  }
+}
+

@@ -1,0 +1,30 @@
+{
+  "chart": {
+    "width": 1024,
+    "height": 600,
+    "title": "Sales Trends by Store"
+  },
+  "chartType": "groupDateChart",
+  "dateChart": {
+    "xAxisTitle": "Date",
+    "yAxisTitle": "Sales",
+    "yAxisScale": "USD",
+    "yAxisFormat": "#,##0",
+    "dateFormat": "auto",
+    "xGrid": true,
+    "yGrid": true
+  },
+  "tsv": {
+    "dateTitle": "Date",
+    "valueTitle": "Sales",
+    "groupTitle": "Store",
+    "commentTitle": "Comment",
+    "seriesType": "line",
+    "seriesOptions": {
+      "lineWidth": 2,
+      "lineType": "solid",
+      "showMarkers": true
+    }
+  }
+}
+

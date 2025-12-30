@@ -1,0 +1,46 @@
+{
+  "chart": {
+    "width": 1024,
+    "height": 600,
+    "title": "Sales and Customer Trends",
+    "subtitle": "7 days of data"
+  },
+  "chartType": "dateChart",
+  "dateChart": {
+    "xAxisTitle": "Date",
+    "yAxisTitle": "Sales",
+    "yAxisScale": "USD",
+    "yAxisFormat": "#,##0",
+    "secondAxis": true,
+    "secondAxisTitle": "Customers",
+    "secondAxisScale": "people",
+    "secondAxisFormat": "#,##0",
+    "dateFormat": "auto",
+    "xGrid": false,
+    "yGrid": false
+  },
+  "tsv": {
+    "dateTitle": "Date",
+    "commentTitle": "Comment",
+    "series": [
+      {
+        "type": "line",
+        "title": "Sales",
+        "column": "Sales",
+        "color": "red",
+        "lineWidth": 2,
+        "lineType": "solid",
+        "secondAxis": false,
+        "showMarkers": true
+      },
+      {
+        "type": "bar",
+        "title": "Customers",
+        "column": "Customers",
+        "color": "blue",
+        "secondAxis": true
+      }
+    ]
+  }
+}
+

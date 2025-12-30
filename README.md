@@ -86,19 +86,19 @@ See [CLI Specification](./docs/21-CLI仕様.md) and [CLI Config JSON Specificati
 
 Example of a date chart with line and bar series:
 
-![Date Chart Sample](./docs/sample/images/chart-7days-2025-12-30.svg)
+![Date Chart Sample](./docs/sample/images/chart-datechart-en.svg)
 
 ### Group Date Chart
 
 Example of a group-based date chart showing multiple stores:
 
-![Group Date Chart Sample](./docs/sample/images/test-groupdatechart.svg)
+![Group Date Chart Sample](./docs/sample/images/chart-groupdatechart-en.svg)
 
 ### Histogram
 
 Example of a histogram showing data distribution:
 
-![Histogram Sample](./docs/sample/images/test-histogram-group.svg)
+![Histogram Sample](./docs/sample/images/chart-histogram-en.svg)
 
 All sample outputs are available in:
 - `docs/sample/images/` - Sample chart images
