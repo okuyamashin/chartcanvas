@@ -10,22 +10,43 @@
                 const chart_div = document.getElementById('chart_div');
                 const chart = new ChartCanvas(chart_div);
                 chart.size(1024, 600); //Default is 1024x600
+                chart.title = '売上・客数推移';
+                chart.subtitle = '2025/01/01 - 2025/01/31';
+
                 const dateChart = chart.addDateChart();
                 dateChart.xAxisTitle = '日付';
                 dateChart.yAxisTitle = '売上';
-                dateChart.yAxisScale = '万円';
+                dateChart.yAxisScale = '円';
                 dateChart.yAxisFormat = '#,##0';
-                dateChart.title = '売上推移';
-                dateChart.subtitle = '2025/01/01 - 2025/01/09';
+                dateChart.secondAxis = true;
+                dateChart.secondAxisTitle = '客数';
+                dateChart.secondAxisScale = '人';
+                dateChart.secondAxisFormat = '#,##0';
 
-                const loader = dateChart.tsvLoader('https://sample.com/data.tsv');
+                // 事前に系列を追加
+                const salesLine = dateChart.addLine({
+                    title: '売上',
+                    color: 'red',
+                    lineWidth: 2,
+                    lineType: 'solid',
+                    secondAxis: false  // 左軸
+                });
+                const customerBar = dateChart.addBar({
+                    title: '客数',
+                    color: 'blue',
+                    secondAxis: true   // 右軸
+                });
+
+                // TSVローダーに系列と列名を紐づける
+                const loader = dateChart.tsvLoader('./data2.tsv');
                 loader.dateTitle = '日付';
-                loader.valueTitle = '売上';
-                loader.groupTitle = '店舗名';
+                loader.addSeries(salesLine, '売上');
+                loader.addSeries(customerBar, '客数');
 
                 try {
                     // loader.load()でTSVファイルを読み込み、awaitで待つ
                     await loader.load();
+                    
                     // データの読み込みが完了したらrender()を呼び出す
                     chart.render();
                 } catch (error) {
