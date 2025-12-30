@@ -886,7 +886,7 @@ class ChartCanvas {
                 // 原点が下なので、1.0 - yRatioで反転
                 const y = plotArea.originY - yRatio * plotArea.height;
 
-                points.push({ x, y, comment: item.tooltip || '' });
+                points.push({ x, y, comment: item.tooltip || '', value: item.value });
             }
 
             if (points.length === 0) {
@@ -915,6 +915,14 @@ class ChartCanvas {
             // 'solid'の場合は何も設定しない（デフォルト）
 
             svg.appendChild(path);
+
+            // マーカーを描画（showMarkersがtrueの場合）
+            if (line.showMarkers) {
+                for (let j = 0; j < points.length; j++) {
+                    const point = points[j];
+                    this.renderMarker(svg, point.x, point.y, point.value, line.color || 'black', dateChart);
+                }
+            }
 
             // コメントを描画
             for (let j = 0; j < points.length; j++) {
@@ -1022,6 +1030,7 @@ class ChartCanvas {
                 rect.setAttribute('width', barWidth);
                 rect.setAttribute('height', barBottom - barTop);
                 rect.setAttribute('fill', bar.color || 'blue');
+                rect.setAttribute('fill-opacity', '0.7'); // 内部の透明度を70%に設定
                 rect.setAttribute('stroke', 'none');
 
                 svg.appendChild(rect);
@@ -1032,6 +1041,37 @@ class ChartCanvas {
                 }
             }
         }
+    }
+
+    /**
+     * マーカーを描画（線グラフのデータポイントに丸を表示）
+     * @param {SVGElement} svg - SVG要素
+     * @param {number} x - X座標
+     * @param {number} y - Y座標（データポイントの位置）
+     * @param {number} value - 値
+     * @param {string} color - 系列の色
+     * @param {DateChart} dateChart - DateChartインスタンス（フォーマット用）
+     */
+    renderMarker(svg, x, y, value, color, dateChart) {
+        const markerRadius = 4; // マーカーの半径
+        
+        // マーカーの円を描画
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', x);
+        circle.setAttribute('cy', y);
+        circle.setAttribute('r', markerRadius);
+        circle.setAttribute('fill', color);
+        circle.setAttribute('stroke', '#fff');
+        circle.setAttribute('stroke-width', '1');
+        
+        // マウスオーバーで値が表示されるようにtitle要素を追加
+        const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        const yAxisFormat = dateChart.yAxisFormat || '#,##0';
+        const formattedValue = this.formatNumber(value, yAxisFormat);
+        title.textContent = formattedValue;
+        circle.appendChild(title);
+        
+        svg.appendChild(circle);
     }
 
     /**
