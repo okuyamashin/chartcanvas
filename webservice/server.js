@@ -625,22 +625,38 @@ const server = http.createServer((req, res) => {
         return;
     }
     
-    // chartcanvas.jsの場合は動的にバンドルを生成
+    // chartcanvas.jsの場合はプロジェクトルートのファイルを配信
     if (filePath === '/chartcanvas.js') {
-        try {
-            const bundle = bundleJavaScript();
-            res.writeHead(200, { 
-                'Content-Type': 'text/javascript',
-                'Cache-Control': 'no-cache'
-            });
-            res.end(bundle, 'utf-8');
-            return;
-        } catch (error) {
-            console.error('Error bundling JavaScript:', error);
-            res.writeHead(500, { 'Content-Type': 'text/plain' });
-            res.end(`Error bundling JavaScript: ${error.message}`);
-            return;
-        }
+        const chartcanvasPath = path.join(__dirname, '..', 'chartcanvas.js');
+        fs.readFile(chartcanvasPath, (error, content) => {
+            if (error) {
+                if (error.code === 'ENOENT') {
+                    // chartcanvas.jsが見つからない場合は動的にバンドルを生成
+                    try {
+                        const bundle = bundleJavaScript();
+                        res.writeHead(200, { 
+                            'Content-Type': 'text/javascript',
+                            'Cache-Control': 'no-cache'
+                        });
+                        res.end(bundle, 'utf-8');
+                    } catch (bundleError) {
+                        console.error('Error bundling JavaScript:', bundleError);
+                        res.writeHead(500, { 'Content-Type': 'text/plain' });
+                        res.end(`Error bundling JavaScript: ${bundleError.message}`);
+                    }
+                } else {
+                    res.writeHead(500, { 'Content-Type': 'text/plain' });
+                    res.end(`Server error: ${error.code}`);
+                }
+            } else {
+                res.writeHead(200, { 
+                    'Content-Type': 'text/javascript',
+                    'Cache-Control': 'no-cache'
+                });
+                res.end(content, 'utf-8');
+            }
+        });
+        return;
     }
     
     // /output/パスの場合は出力ディレクトリから提供

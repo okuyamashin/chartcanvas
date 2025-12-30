@@ -1,3 +1,41 @@
+function normalizeDate(dateStr, dateFormat = 'auto') {
+    if (!dateStr || typeof dateStr !== 'string') {
+        return dateStr;
+    }
+    
+    // 既にYYYYMMDD形式の場合
+    if (dateStr.match(/^\d{8}$/)) {
+        return dateStr;
+    }
+    
+    // 日付形式を自動検出または指定された形式を使用
+    let detectedFormat = dateFormat;
+    if (dateFormat === 'auto') {
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            detectedFormat = 'YYYY-MM-DD';
+        } else if (dateStr.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+            detectedFormat = 'YYYY/MM/DD';
+        } else if (dateStr.match(/^\d{8}$/)) {
+            detectedFormat = 'YYYYMMDD';
+        } else {
+            // 形式が不明な場合はそのまま返す
+            return dateStr;
+        }
+    }
+    
+    // 形式に応じて変換
+    if (detectedFormat === 'YYYY-MM-DD') {
+        return dateStr.replace(/-/g, '');
+    } else if (detectedFormat === 'YYYY/MM/DD') {
+        return dateStr.replace(/\//g, '');
+    } else if (detectedFormat === 'YYYYMMDD') {
+        return dateStr;
+    }
+    
+    // フォールバック: ハイフンとスラッシュを削除
+    return dateStr.replace(/[-/]/g, '');
+}
+
 /**
  * DateChart - 日付チャートクラス
  * 時系列データ（X軸が日付）のチャートを管理するクラス
@@ -282,8 +320,12 @@ class TSVLoader {
         if (!this.dateTitle) {
             throw new Error('dateTitle must be set');
         }
-        if (this.seriesMap.size === 0 && this.groupSeriesMap.size === 0) {
-            throw new Error('At least one series must be added using addSeries()');
+
+        // valueTitleとgroupTitleが設定されている場合、自動的に系列を作成するモード
+        const autoMode = this.valueTitle && this.groupTitle;
+
+        if (!autoMode && this.seriesMap.size === 0 && this.groupSeriesMap.size === 0) {
+            throw new Error('At least one series must be added using addSeries() or set valueTitle and groupTitle for auto mode');
         }
 
         // TSVファイルを読み込む

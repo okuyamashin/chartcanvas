@@ -2,7 +2,7 @@
 
 /**
  * 統合ファイル生成スクリプト
- * src/dateChart.js と src/main.js を統合して chartcanvas.js を生成します
+ * src/dateChart.js, src/histogramChart.js と src/main.js を統合して chartcanvas.js を生成します
  */
 
 const fs = require('fs');
@@ -10,6 +10,7 @@ const path = require('path');
 
 // ファイルパス
 const dateChartPath = path.join(__dirname, 'src', 'datechart.js');
+const histogramChartPath = path.join(__dirname, 'src', 'histogramChart.js');
 const mainPath = path.join(__dirname, 'src', 'main.js');
 const outputPath = path.join(__dirname, 'chartcanvas.js');
 
@@ -60,11 +61,18 @@ function build() {
     
     // ファイルを読み込む
     const dateChartContent = readFile(dateChartPath);
+    const histogramChartContent = readFile(histogramChartPath);
     const mainContent = readFile(mainPath);
     
     // dateChart.jsからグローバルスコープへの公開部分を削除
     // (最後にまとめて追加するため)
     const dateChartWithoutExport = dateChartContent.replace(
+        /\/\/ グローバルスコープに公開[\s\S]*$/,
+        ''
+    ).trim();
+    
+    // histogramChart.jsからグローバルスコープへの公開部分を削除
+    const histogramChartWithoutExport = histogramChartContent.replace(
         /\/\/ グローバルスコープに公開[\s\S]*$/,
         ''
     ).trim();
@@ -80,9 +88,10 @@ function build() {
     ).trim();
     
     // 統合ファイルの内容を構築
-    // 順序: DateChart関連クラス → ChartCanvasクラス → グローバルスコープへの公開
+    // 順序: DateChart関連クラス → HistogramChart関連クラス → ChartCanvasクラス → グローバルスコープへの公開
     const integratedContent = headerComment +
         dateChartWithoutExport + '\n\n' +
+        histogramChartWithoutExport + '\n\n' +
         mainWithoutExport + '\n\n' +
         '// グローバルスコープに公開\n' +
         'window.ChartCanvas = ChartCanvas;\n' +
@@ -90,7 +99,10 @@ function build() {
         'window.LineSeries = LineSeries;\n' +
         'window.BarSeries = BarSeries;\n' +
         'window.TSVLoader = TSVLoader;\n' +
-        'window.normalizeDate = normalizeDate;\n';
+        'window.normalizeDate = normalizeDate;\n' +
+        'window.HistogramChart = HistogramChart;\n' +
+        'window.HistogramSeries = HistogramSeries;\n' +
+        'window.HistogramTSVLoader = HistogramTSVLoader;\n';
     
     // ファイルを書き込む
     writeFile(outputPath, integratedContent);
