@@ -295,11 +295,19 @@ class TSVLoader {
         this.dateChart = dateChart;
         this.url = url;
         this.dateTitle = '';
+        this.valueTitle = ''; // 値列名（グループごとに自動的に系列を作成する場合）
         this.groupTitle = '';
         this.commentTitle = ''; // コメント列名
+        // 日付形式の設定（dateChartから継承、または個別に設定可能）
+        this.dateFormat = null; // nullの場合はdateChart.dateFormatを使用
         // 系列と列名のマッピング: Map<series, columnName> または Map<groupName, Map<series, columnName>>
         this.seriesMap = new Map();
         this.groupSeriesMap = new Map(); // グループ列がある場合用
+        // 自動系列作成用のオプション
+        this.autoCreateSeries = false; // valueTitleとgroupTitleが設定されている場合に自動的に系列を作成
+        this.seriesColors = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray'];
+        this.seriesType = 'line'; // 'line' または 'bar'
+        this.seriesOptions = {}; // 系列作成時の追加オプション
     }
 
     /**
@@ -365,8 +373,91 @@ class TSVLoader {
         }
 
         const commentIndex = this.commentTitle ? headers.indexOf(this.commentTitle) : -1;
+        
+        const valueIndex = autoMode ? headers.indexOf(this.valueTitle) : -1;
+        if (autoMode && valueIndex === -1) {
+            throw new Error(`Value column "${this.valueTitle}" not found in TSV file`);
+        }
 
-        // 系列と列名のマッピングから列のインデックスを取得
+        // 自動モードの場合、データを先に読み込んでグループごとに系列を作成
+        if (autoMode) {
+            // グループごとのデータを収集
+            const dataByGroup = new Map(); // Map<groupName, Array<{date, value, comment}>>
+            
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+
+                const columns = line.split('\t');
+                const dateStr = columns[dateIndex]?.trim();
+                if (!dateStr) continue;
+
+                // 日付形式をYYYYMMDDに変換
+                const dateFormat = this.dateFormat || this.dateChart.dateFormat || 'auto';
+                const dateFormatted = normalizeDate(dateStr, dateFormat);
+
+                // groupIndexの範囲チェック
+                if (groupIndex < 0 || groupIndex >= columns.length) {
+                    continue;
+                }
+                
+                const groupName = (columns[groupIndex] || '').trim();
+                if (!groupName) {
+                    continue;
+                }
+
+                if (valueIndex < 0 || valueIndex >= columns.length) {
+                    continue; // 列数が足りない場合はスキップ
+                }
+
+                const valueStr = columns[valueIndex].trim();
+                const value = parseFloat(valueStr);
+                if (isNaN(value)) {
+                    continue; // 数値でない場合はスキップ
+                }
+
+                // コメントを取得（コメント列が指定されている場合）
+                const comment = (commentIndex >= 0 && columns[commentIndex]) ? columns[commentIndex].trim() : '';
+
+                if (!dataByGroup.has(groupName)) {
+                    dataByGroup.set(groupName, []);
+                }
+                dataByGroup.get(groupName).push({ date: dateFormatted, value, comment });
+            }
+
+            // グループごとに系列を作成してデータを追加
+            const sortedGroupNames = Array.from(dataByGroup.keys()).sort();
+            let colorIndex = 0;
+
+            for (const groupName of sortedGroupNames) {
+                const data = dataByGroup.get(groupName);
+                
+                // 系列を作成
+                const seriesOptions = {
+                    title: groupName,
+                    color: this.seriesColors[colorIndex % this.seriesColors.length],
+                    ...this.seriesOptions
+                };
+                
+                const series = this.seriesType === 'bar' 
+                    ? this.dateChart.addBar(seriesOptions)
+                    : this.dateChart.addLine(seriesOptions);
+
+                // データを日付でソート
+                data.sort((a, b) => a.date.localeCompare(b.date));
+
+                // データを追加
+                for (const item of data) {
+                    series.addData(item.date, item.value, item.comment || '');
+                }
+
+                colorIndex++;
+            }
+
+            return; // 自動モードの場合はここで終了
+        }
+
+        // 通常モード: 系列と列名のマッピングから列のインデックスを取得
         const seriesColumnMap = new Map(); // Map<series, columnIndex>
         
         if (groupIndex >= 0) {
@@ -573,6 +664,10 @@ class HistogramChart {
         this.binWidth = null; // nullの場合は自動計算
         this.binAlignment = 'left'; // 'left', 'center', 'right'
         this.curveMode = false; // trueの場合、ベジェ曲線で描画
+        
+        // グリッド線の設定
+        this.xGrid = false; // X軸のグリッド線を表示するか（デフォルト: false）
+        this.yGrid = false; // Y軸のグリッド線を表示するか（デフォルト: false）
         
         // データ系列を保持（グループ別ヒストグラム対応）
         this.series = [];
@@ -1279,6 +1374,9 @@ class ChartCanvas {
                 // 右スケール（副軸）を描画
                 this.renderRightYAxis(svg, plotArea);
 
+                // グリッド線を描画（軸の後、データ系列の前）
+                this.renderDateChartGrid(svg, plotArea);
+
                 // 棒グラフを描画（先に追加した系列が上に来るように、先に描画する）
                 this.renderBars(svg, plotArea);
 
@@ -1961,6 +2059,95 @@ class ChartCanvas {
             unitText.setAttribute('style', `font-size: ${fontSize}px;`);
             unitText.textContent = `(${dateChart.secondAxisScale})`;
             svg.appendChild(unitText);
+        }
+    }
+
+    /**
+     * DateChartのグリッド線を描画
+     * @param {SVGElement} svg - SVG要素
+     * @param {Object} plotArea - 描画エリアの情報
+     */
+    renderDateChartGrid(svg, plotArea) {
+        if (!plotArea || !this.dateCharts || this.dateCharts.length === 0) {
+            return;
+        }
+
+        const dateChart = this.dateCharts[0];
+        const gridColor = '#e0e0e0'; // 薄いグレー
+        const gridStrokeWidth = 1;
+        const gridDashArray = '2,2'; // 破線
+
+        // X軸のグリッド線を描画
+        if (dateChart.xGrid) {
+            // X軸のスケールラベル位置にグリッド線を描画
+            const dateSet = new Set();
+            for (const line of dateChart.lines) {
+                for (const item of line.data) {
+                    dateSet.add(item.date);
+                }
+            }
+            for (const bar of dateChart.bars) {
+                for (const item of bar.data) {
+                    dateSet.add(item.date);
+                }
+            }
+
+            if (dateSet.size > 0) {
+                const sortedDates = Array.from(dateSet).sort();
+                const minDate = sortedDates[0];
+                const maxDate = sortedDates[sortedDates.length - 1];
+                const minDateValue = this.parseDate(minDate);
+                const maxDateValue = this.parseDate(maxDate);
+                const extendedMinDateValue = minDateValue - 0.5;
+                const extendedMaxDateValue = maxDateValue + 0.5;
+                const extendedDateRange = extendedMaxDateValue - extendedMinDateValue;
+
+                // データの期間に応じてフィルタリング
+                const dateRange = maxDateValue - minDateValue;
+                let datesToRender = sortedDates;
+                if (dateRange >= 60 && dateRange <= 120) {
+                    datesToRender = this.filterDatesForThreeMonths(sortedDates);
+                } else if (dateRange > 120) {
+                    datesToRender = this.filterDatesForOneYear(sortedDates);
+                }
+
+                for (const date of datesToRender) {
+                    const dateValue = this.parseDate(date);
+                    const ratio = extendedDateRange > 0 ? (dateValue - extendedMinDateValue) / extendedDateRange : 0;
+                    const x = plotArea.originX + ratio * plotArea.width;
+
+                    const gridLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    gridLine.setAttribute('x1', x);
+                    gridLine.setAttribute('y1', plotArea.topRightY);
+                    gridLine.setAttribute('x2', x);
+                    gridLine.setAttribute('y2', plotArea.originY);
+                    gridLine.setAttribute('stroke', gridColor);
+                    gridLine.setAttribute('stroke-width', gridStrokeWidth);
+                    gridLine.setAttribute('stroke-dasharray', gridDashArray);
+                    svg.appendChild(gridLine);
+                }
+            }
+        }
+
+        // Y軸のグリッド線を描画（主軸）
+        if (dateChart.yGrid) {
+            const primaryScale = dateChart.calculateYAxisScale(false);
+            const plotHeight = plotArea.height;
+
+            for (const labelValue of primaryScale.labels) {
+                const ratio = primaryScale.max > 0 ? labelValue / primaryScale.max : 0;
+                const y = plotArea.originY - ratio * plotHeight;
+
+                const gridLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                gridLine.setAttribute('x1', plotArea.originX);
+                gridLine.setAttribute('y1', y);
+                gridLine.setAttribute('x2', plotArea.topRightX);
+                gridLine.setAttribute('y2', y);
+                gridLine.setAttribute('stroke', gridColor);
+                gridLine.setAttribute('stroke-width', gridStrokeWidth);
+                gridLine.setAttribute('stroke-dasharray', gridDashArray);
+                svg.appendChild(gridLine);
+            }
         }
     }
 
@@ -2725,6 +2912,9 @@ class ChartCanvas {
         // X軸とY軸を描画
         this.renderHistogramAxes(svg, plotArea, plotWidth, plotHeight);
 
+        // グリッド線を描画（軸の後、データ系列の前）
+        this.renderHistogramGrid(svg, plotArea, plotWidth, plotHeight);
+
         // 各系列のヒストグラムを描画
         for (const series of histogramChart.series) {
             if (series.data.length === 0) continue;
@@ -2917,6 +3107,63 @@ class ChartCanvas {
 
         // 凡例を描画
         this.renderHistogramLegend(svg);
+    }
+
+    /**
+     * HistogramChartのグリッド線を描画
+     * @param {SVGElement} svg - SVG要素
+     * @param {Object} plotArea - 描画エリアの情報
+     * @param {number} plotWidth - 描画エリアの幅
+     * @param {number} plotHeight - 描画エリアの高さ
+     */
+    renderHistogramGrid(svg, plotArea, plotWidth, plotHeight) {
+        if (!plotArea || !this.histogramCharts || this.histogramCharts.length === 0) {
+            return;
+        }
+
+        const histogramChart = this.histogramCharts[0];
+        const gridColor = '#e0e0e0'; // 薄いグレー
+        const gridStrokeWidth = 1;
+        const gridDashArray = '2,2'; // 破線
+
+        // X軸のグリッド線を描画
+        if (histogramChart.xGrid) {
+            const xAxisScale = plotArea.xAxisScale;
+            const dataRange = plotArea.dataRange.max - plotArea.dataRange.min;
+
+            for (const labelValue of xAxisScale.labels) {
+                const xRatio = dataRange > 0 ? (labelValue - plotArea.dataRange.min) / dataRange : 0;
+                const x = plotArea.originX + xRatio * plotWidth;
+
+                const gridLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                gridLine.setAttribute('x1', x);
+                gridLine.setAttribute('y1', plotArea.topRightY);
+                gridLine.setAttribute('x2', x);
+                gridLine.setAttribute('y2', plotArea.originY);
+                gridLine.setAttribute('stroke', gridColor);
+                gridLine.setAttribute('stroke-width', gridStrokeWidth);
+                gridLine.setAttribute('stroke-dasharray', gridDashArray);
+                svg.appendChild(gridLine);
+            }
+        }
+
+        // Y軸のグリッド線を描画
+        if (histogramChart.yGrid) {
+            for (const label of plotArea.yAxisScale.labels) {
+                const yRatio = label / plotArea.yAxisScale.max;
+                const y = plotArea.originY - yRatio * plotHeight;
+
+                const gridLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                gridLine.setAttribute('x1', plotArea.originX);
+                gridLine.setAttribute('y1', y);
+                gridLine.setAttribute('x2', plotArea.topRightX);
+                gridLine.setAttribute('y2', y);
+                gridLine.setAttribute('stroke', gridColor);
+                gridLine.setAttribute('stroke-width', gridStrokeWidth);
+                gridLine.setAttribute('stroke-dasharray', gridDashArray);
+                svg.appendChild(gridLine);
+            }
+        }
     }
 
     /**
