@@ -503,6 +503,118 @@ class ChartCanvas {
     }
 
     /**
+     * 日付文字列（YYYYMMDD形式）をDateオブジェクトに変換
+     * @param {string} dateStr - 日付文字列（'YYYYMMDD'形式）
+     * @returns {Date} Dateオブジェクト
+     */
+    parseDateToDate(dateStr) {
+        const year = parseInt(dateStr.substring(0, 4), 10);
+        const month = parseInt(dateStr.substring(4, 6), 10) - 1; // 月は0始まり
+        const day = parseInt(dateStr.substring(6, 8), 10);
+        return new Date(year, month, day);
+    }
+
+    /**
+     * 日付が日曜日かどうかを判定
+     * @param {string} dateStr - 日付文字列（'YYYYMMDD'形式）
+     * @returns {boolean} 日曜日の場合true
+     */
+    isSunday(dateStr) {
+        const date = this.parseDateToDate(dateStr);
+        return date.getDay() === 0; // 0が日曜日
+    }
+
+    /**
+     * 日付が月初の1日かどうかを判定
+     * @param {string} dateStr - 日付文字列（'YYYYMMDD'形式）
+     * @returns {boolean} 月初の1日の場合true
+     */
+    isFirstDayOfMonth(dateStr) {
+        const day = dateStr.substring(6, 8);
+        return day === '01';
+    }
+
+    /**
+     * 日付文字列（YYYYMMDD形式）をyyyy/MM/dd形式に変換
+     * @param {string} dateStr - 日付文字列（'YYYYMMDD'形式）
+     * @returns {string} yyyy/MM/dd形式の日付文字列
+     */
+    formatDateToYYYYMMDD(dateStr) {
+        const year = dateStr.substring(0, 4);
+        const month = dateStr.substring(4, 6);
+        const day = dateStr.substring(6, 8);
+        return `${year}/${month}/${day}`;
+    }
+
+    /**
+     * 3ヶ月データ用に表示する日付をフィルタリング
+     * @param {string[]} sortedDates - ソート済みの日付配列
+     * @returns {string[]} フィルタリングされた日付配列
+     */
+    filterDatesForThreeMonths(sortedDates) {
+        if (sortedDates.length === 0) {
+            return [];
+        }
+
+        const filteredDates = [];
+        const firstDate = sortedDates[0];
+        const lastDate = sortedDates[sortedDates.length - 1];
+
+        // 最初の日は必ず追加
+        filteredDates.push(firstDate);
+
+        // 中間の日付をフィルタリング
+        for (let i = 1; i < sortedDates.length - 1; i++) {
+            const date = sortedDates[i];
+            // 月初の1日または日曜日の場合は追加
+            if (this.isFirstDayOfMonth(date) || this.isSunday(date)) {
+                filteredDates.push(date);
+            }
+        }
+
+        // 最後の日は必ず追加（最初の日と同じでない場合）
+        if (lastDate !== firstDate) {
+            filteredDates.push(lastDate);
+        }
+
+        return filteredDates;
+    }
+
+    /**
+     * 1年データ用に表示する日付をフィルタリング
+     * @param {string[]} sortedDates - ソート済みの日付配列
+     * @returns {string[]} フィルタリングされた日付配列
+     */
+    filterDatesForOneYear(sortedDates) {
+        if (sortedDates.length === 0) {
+            return [];
+        }
+
+        const filteredDates = [];
+        const firstDate = sortedDates[0];
+        const lastDate = sortedDates[sortedDates.length - 1];
+
+        // 最初の日は必ず追加
+        filteredDates.push(firstDate);
+
+        // 中間の日付をフィルタリング
+        for (let i = 1; i < sortedDates.length - 1; i++) {
+            const date = sortedDates[i];
+            // 月初の1日のみを追加（月毎）
+            if (this.isFirstDayOfMonth(date)) {
+                filteredDates.push(date);
+            }
+        }
+
+        // 最後の日は必ず追加（最初の日と同じでない場合）
+        if (lastDate !== firstDate) {
+            filteredDates.push(lastDate);
+        }
+
+        return filteredDates;
+    }
+
+    /**
      * X軸スケールを描画
      * @param {SVGElement} svg - SVG要素
      * @param {Object} plotArea - 描画エリアの情報
@@ -552,6 +664,7 @@ class ChartCanvas {
         const maxDate = sortedDates[sortedDates.length - 1];
         const minDateValue = this.parseDate(minDate);
         const maxDateValue = this.parseDate(maxDate);
+        const dateRange = maxDateValue - minDateValue;
         
         // 日付の範囲を拡張して、最初と最後の日付に余裕を持たせる
         // 最初の日付の0.5日前から最後の日付の0.5日後までの範囲でマッピング
@@ -559,12 +672,22 @@ class ChartCanvas {
         const extendedMaxDateValue = maxDateValue + 0.5;
         const extendedDateRange = extendedMaxDateValue - extendedMinDateValue;
 
+        // データの期間に応じてフィルタリング
+        let datesToRender = sortedDates;
+        if (dateRange >= 60 && dateRange <= 120) {
+            // 3ヶ月データ（60日〜120日）の場合は月初の1日と日曜日を表示
+            datesToRender = this.filterDatesForThreeMonths(sortedDates);
+        } else if (dateRange > 120) {
+            // 1年データ（120日超）の場合は月初の1日のみを表示（月毎）
+            datesToRender = this.filterDatesForOneYear(sortedDates);
+        }
+
         // 各日付ごとに目盛り線とラベルを描画
         let prevYear = '';
         let prevMonth = '';
 
-        for (let i = 0; i < sortedDates.length; i++) {
-            const date = sortedDates[i];
+        for (let i = 0; i < datesToRender.length; i++) {
+            const date = datesToRender[i];
             const dateValue = this.parseDate(date);
             const year = date.substring(0, 4);
             const month = date.substring(4, 6);
@@ -986,7 +1109,7 @@ class ChartCanvas {
                 // 原点が下なので、1.0 - yRatioで反転
                 const y = plotArea.originY - yRatio * plotArea.height;
 
-                points.push({ x, y, comment: item.tooltip || '', value: item.value });
+                points.push({ x, y, comment: item.tooltip || '', value: item.value, date: item.date });
             }
 
             if (points.length === 0) {
@@ -1020,7 +1143,7 @@ class ChartCanvas {
             if (line.showMarkers) {
                 for (let j = 0; j < points.length; j++) {
                     const point = points[j];
-                    this.renderMarker(svg, point.x, point.y, point.value, line.color || 'black', dateChart);
+                    this.renderMarker(svg, point.x, point.y, point.value, point.date, point.comment, line.color || 'black', dateChart);
                 }
             }
 
@@ -1133,6 +1256,23 @@ class ChartCanvas {
                 rect.setAttribute('fill-opacity', '0.7'); // 内部の透明度を70%に設定
                 rect.setAttribute('stroke', 'none');
 
+                // ツールチップを追加（2行表示）
+                const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+                const yAxisFormat = bar.secondAxis ? (dateChart.secondAxisFormat || '#,##0') : (dateChart.yAxisFormat || '#,##0');
+                const formattedValue = this.formatNumber(item.value, yAxisFormat);
+                const formattedDate = this.formatDateToYYYYMMDD(item.date);
+                
+                // 1行目: 日付、2行目: 値（コメントがある場合は値 + コメント）
+                let tooltipText = formattedDate;
+                if (item.tooltip && item.tooltip.trim()) {
+                    tooltipText += '\n' + formattedValue + ' ' + item.tooltip.trim();
+                } else {
+                    tooltipText += '\n' + formattedValue;
+                }
+                
+                title.textContent = tooltipText;
+                rect.appendChild(title);
+
                 svg.appendChild(rect);
 
                 // コメントを描画
@@ -1149,10 +1289,12 @@ class ChartCanvas {
      * @param {number} x - X座標
      * @param {number} y - Y座標（データポイントの位置）
      * @param {number} value - 値
+     * @param {string} date - 日付（'YYYYMMDD'形式）
+     * @param {string} comment - コメントテキスト（オプション）
      * @param {string} color - 系列の色
      * @param {DateChart} dateChart - DateChartインスタンス（フォーマット用）
      */
-    renderMarker(svg, x, y, value, color, dateChart) {
+    renderMarker(svg, x, y, value, date, comment, color, dateChart) {
         const markerRadius = 4; // マーカーの半径
         
         // マーカーの円を描画
@@ -1164,11 +1306,21 @@ class ChartCanvas {
         circle.setAttribute('stroke', '#fff');
         circle.setAttribute('stroke-width', '1');
         
-        // マウスオーバーで値が表示されるようにtitle要素を追加
+        // マウスオーバーでツールチップを表示（2行表示）
         const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
         const yAxisFormat = dateChart.yAxisFormat || '#,##0';
         const formattedValue = this.formatNumber(value, yAxisFormat);
-        title.textContent = formattedValue;
+        const formattedDate = this.formatDateToYYYYMMDD(date);
+        
+        // 1行目: 日付、2行目: 値（コメントがある場合は値 + コメント）
+        let tooltipText = formattedDate;
+        if (comment && comment.trim()) {
+            tooltipText += '\n' + formattedValue + ' ' + comment.trim();
+        } else {
+            tooltipText += '\n' + formattedValue;
+        }
+        
+        title.textContent = tooltipText;
         circle.appendChild(title);
         
         svg.appendChild(circle);

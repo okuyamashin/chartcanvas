@@ -199,6 +199,7 @@ class LineSeries {
         this.lineWidth = options.lineWidth || 2;
         this.lineType = options.lineType || 'solid';
         this.secondAxis = options.secondAxis || false;
+        this.showMarkers = options.showMarkers || false; // マーカーを表示するかどうか
         this.data = [];
     }
 
@@ -257,6 +258,7 @@ class TSVLoader {
         this.url = url;
         this.dateTitle = '';
         this.groupTitle = '';
+        this.commentTitle = ''; // コメント列名
         // 系列と列名のマッピング: Map<series, columnName> または Map<groupName, Map<series, columnName>>
         this.seriesMap = new Map();
         this.groupSeriesMap = new Map(); // グループ列がある場合用
@@ -319,6 +321,8 @@ class TSVLoader {
         if (this.groupTitle && groupIndex === -1) {
             throw new Error(`Group column "${this.groupTitle}" not found in TSV file`);
         }
+
+        const commentIndex = this.commentTitle ? headers.indexOf(this.commentTitle) : -1;
 
         // 系列と列名のマッピングから列のインデックスを取得
         const seriesColumnMap = new Map(); // Map<series, columnIndex>
@@ -386,17 +390,115 @@ class TSVLoader {
                 if (!dataBySeries.has(series)) {
                     dataBySeries.set(series, []);
                 }
-                dataBySeries.get(series).push({ date: dateFormatted, value });
+                
+                // コメントを取得（コメント列が指定されている場合）
+                const comment = (commentIndex >= 0 && columns[commentIndex]) ? columns[commentIndex].trim() : '';
+                
+                dataBySeries.get(series).push({ date: dateFormatted, value, comment });
             }
         }
 
         // 各系列に対してデータを追加（日付でソート）
         for (const [series, data] of dataBySeries.entries()) {
             data.sort((a, b) => a.date.localeCompare(b.date));
-            for (const item of data) {
-                series.addData(item.date, item.value);
+            
+            // 日付を補完する（開始日から終了日までのすべての日付に対してデータを作成）
+            if (data.length > 0) {
+                const filledData = this.fillMissingDates(data);
+                for (const item of filledData) {
+                    series.addData(item.date, item.value, item.comment || '');
+                }
+            } else {
+                // データがない場合はそのまま追加
+                for (const item of data) {
+                    series.addData(item.date, item.value, item.comment || '');
+                }
             }
         }
+    }
+
+    /**
+     * 日付の欠損を補完する（開始日から終了日までのすべての日付に対してデータを作成）
+     * @param {Array<{date, value, comment}>} data - ソート済みのデータ配列
+     * @returns {Array<{date, value, comment}>} 補完されたデータ配列
+     */
+    fillMissingDates(data) {
+        if (data.length === 0) {
+            return [];
+        }
+
+        const filledData = [];
+        const startDate = data[0].date;
+        const endDate = data[data.length - 1].date;
+
+        // 開始日と終了日をDateオブジェクトに変換
+        const start = this.parseDateToDate(startDate);
+        const end = this.parseDateToDate(endDate);
+
+        // データを日付文字列（YYYYMMDD）をキーとするMapに変換
+        const dataMap = new Map();
+        for (const item of data) {
+            dataMap.set(item.date, item);
+        }
+
+        // 開始日から終了日までのすべての日付を生成
+        const currentDate = new Date(start);
+        let lastValue = null;
+        let lastComment = '';
+
+        while (currentDate <= end) {
+            const dateStr = this.formatDateToString(currentDate);
+            const existingData = dataMap.get(dateStr);
+
+            if (existingData) {
+                // データが存在する場合はその値を使用
+                filledData.push({
+                    date: dateStr,
+                    value: existingData.value,
+                    comment: existingData.comment || ''
+                });
+                lastValue = existingData.value;
+                lastComment = existingData.comment || '';
+            } else {
+                // データが存在しない場合は前の値を使用（前の値の保持）
+                if (lastValue !== null) {
+                    filledData.push({
+                        date: dateStr,
+                        value: lastValue,
+                        comment: ''
+                    });
+                }
+            }
+
+            // 次の日へ
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+
+        return filledData;
+    }
+
+    /**
+     * 日付文字列（YYYYMMDD形式）をDateオブジェクトに変換
+     * @param {string} dateStr - 日付文字列（'YYYYMMDD'形式）
+     * @returns {Date} Dateオブジェクト
+     */
+    parseDateToDate(dateStr) {
+        const year = parseInt(dateStr.substring(0, 4), 10);
+        const month = parseInt(dateStr.substring(4, 6), 10) - 1; // 月は0始まり
+        const day = parseInt(dateStr.substring(6, 8), 10);
+        return new Date(year, month, day);
+    }
+
+    /**
+     * Dateオブジェクトを日付文字列（YYYYMMDD形式）に変換
+     * @param {Date} date - Dateオブジェクト
+     * @returns {string} 日付文字列（'YYYYMMDD'形式）
+     */
+    formatDateToString(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}${month}${day}`;
     }
 }
 
@@ -652,6 +754,96 @@ class ChartCanvas {
 
         // コンテナに追加
         this.container.appendChild(svg);
+        
+        // 現在のSVG要素を保存（後で取得できるように）
+        this.currentSvg = svg;
+    }
+
+    /**
+     * 現在のSVG要素を取得
+     * @returns {SVGElement|null} SVG要素
+     */
+    getSVGElement() {
+        return this.container.querySelector('svg') || this.currentSvg || null;
+    }
+
+    /**
+     * SVGを文字列として取得
+     * @returns {string} SVGの文字列表現
+     */
+    getSVGString() {
+        const svg = this.getSVGElement();
+        if (!svg) {
+            return '';
+        }
+        
+        // SVG要素をクローンして、スタイル属性を追加
+        const clonedSvg = svg.cloneNode(true);
+        
+        // XML宣言とDOCTYPEを追加して完全なSVGファイルにする
+        const serializer = new XMLSerializer();
+        const svgString = serializer.serializeToString(clonedSvg);
+        
+        // XML宣言を追加
+        return '<?xml version="1.0" encoding="UTF-8"?>\n' + svgString;
+    }
+
+    /**
+     * SVGをファイルとしてダウンロード
+     * @param {string} filename - ファイル名（デフォルト: 'chart.svg'）
+     */
+    downloadSVG(filename = 'chart.svg') {
+        const svgString = this.getSVGString();
+        if (!svgString) {
+            console.error('SVGが生成されていません。先にrender()を呼び出してください。');
+            return;
+        }
+        
+        // Blobを作成
+        const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        
+        // ダウンロードリンクを作成してクリック
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // URLを解放
+        URL.revokeObjectURL(url);
+    }
+
+    /**
+     * SVGをサーバーにアップロード
+     * @param {string} filename - サーバー側のファイル名（デフォルト: 'chart.svg'）
+     * @returns {Promise<string>} アップロード結果のメッセージ
+     */
+    async uploadSVG(filename = 'chart.svg') {
+        const svgString = this.getSVGString();
+        if (!svgString) {
+            throw new Error('SVGが生成されていません。先にrender()を呼び出してください。');
+        }
+        
+        // FormDataを作成
+        const formData = new FormData();
+        const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+        formData.append('svg', blob, filename);
+        
+        // サーバーにアップロード
+        const response = await fetch('/upload-svg', {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`アップロードに失敗しました: ${response.status} ${errorText}`);
+        }
+        
+        const result = await response.json();
+        return result.message || 'アップロード成功';
     }
 
     /**
@@ -815,6 +1007,118 @@ class ChartCanvas {
     }
 
     /**
+     * 日付文字列（YYYYMMDD形式）をDateオブジェクトに変換
+     * @param {string} dateStr - 日付文字列（'YYYYMMDD'形式）
+     * @returns {Date} Dateオブジェクト
+     */
+    parseDateToDate(dateStr) {
+        const year = parseInt(dateStr.substring(0, 4), 10);
+        const month = parseInt(dateStr.substring(4, 6), 10) - 1; // 月は0始まり
+        const day = parseInt(dateStr.substring(6, 8), 10);
+        return new Date(year, month, day);
+    }
+
+    /**
+     * 日付が日曜日かどうかを判定
+     * @param {string} dateStr - 日付文字列（'YYYYMMDD'形式）
+     * @returns {boolean} 日曜日の場合true
+     */
+    isSunday(dateStr) {
+        const date = this.parseDateToDate(dateStr);
+        return date.getDay() === 0; // 0が日曜日
+    }
+
+    /**
+     * 日付が月初の1日かどうかを判定
+     * @param {string} dateStr - 日付文字列（'YYYYMMDD'形式）
+     * @returns {boolean} 月初の1日の場合true
+     */
+    isFirstDayOfMonth(dateStr) {
+        const day = dateStr.substring(6, 8);
+        return day === '01';
+    }
+
+    /**
+     * 日付文字列（YYYYMMDD形式）をyyyy/MM/dd形式に変換
+     * @param {string} dateStr - 日付文字列（'YYYYMMDD'形式）
+     * @returns {string} yyyy/MM/dd形式の日付文字列
+     */
+    formatDateToYYYYMMDD(dateStr) {
+        const year = dateStr.substring(0, 4);
+        const month = dateStr.substring(4, 6);
+        const day = dateStr.substring(6, 8);
+        return `${year}/${month}/${day}`;
+    }
+
+    /**
+     * 3ヶ月データ用に表示する日付をフィルタリング
+     * @param {string[]} sortedDates - ソート済みの日付配列
+     * @returns {string[]} フィルタリングされた日付配列
+     */
+    filterDatesForThreeMonths(sortedDates) {
+        if (sortedDates.length === 0) {
+            return [];
+        }
+
+        const filteredDates = [];
+        const firstDate = sortedDates[0];
+        const lastDate = sortedDates[sortedDates.length - 1];
+
+        // 最初の日は必ず追加
+        filteredDates.push(firstDate);
+
+        // 中間の日付をフィルタリング
+        for (let i = 1; i < sortedDates.length - 1; i++) {
+            const date = sortedDates[i];
+            // 月初の1日または日曜日の場合は追加
+            if (this.isFirstDayOfMonth(date) || this.isSunday(date)) {
+                filteredDates.push(date);
+            }
+        }
+
+        // 最後の日は必ず追加（最初の日と同じでない場合）
+        if (lastDate !== firstDate) {
+            filteredDates.push(lastDate);
+        }
+
+        return filteredDates;
+    }
+
+    /**
+     * 1年データ用に表示する日付をフィルタリング
+     * @param {string[]} sortedDates - ソート済みの日付配列
+     * @returns {string[]} フィルタリングされた日付配列
+     */
+    filterDatesForOneYear(sortedDates) {
+        if (sortedDates.length === 0) {
+            return [];
+        }
+
+        const filteredDates = [];
+        const firstDate = sortedDates[0];
+        const lastDate = sortedDates[sortedDates.length - 1];
+
+        // 最初の日は必ず追加
+        filteredDates.push(firstDate);
+
+        // 中間の日付をフィルタリング
+        for (let i = 1; i < sortedDates.length - 1; i++) {
+            const date = sortedDates[i];
+            // 月初の1日のみを追加（月毎）
+            if (this.isFirstDayOfMonth(date)) {
+                filteredDates.push(date);
+            }
+        }
+
+        // 最後の日は必ず追加（最初の日と同じでない場合）
+        if (lastDate !== firstDate) {
+            filteredDates.push(lastDate);
+        }
+
+        return filteredDates;
+    }
+
+    /**
      * X軸スケールを描画
      * @param {SVGElement} svg - SVG要素
      * @param {Object} plotArea - 描画エリアの情報
@@ -826,7 +1130,7 @@ class ChartCanvas {
 
         const dateChart = this.dateCharts[0];
         const tickLineLength = 5; // 目盛り線の長さ
-        const fontSize = ChartCanvas.FONT_SIZE_NORMAL;
+        const fontSize = ChartCanvas.FONT_SIZE_SMALL;
         const labelMargin = 5; // ラベルと目盛り線の間隔
 
         // X軸の線を描画: (0,0)から(1,0)へ
@@ -864,6 +1168,7 @@ class ChartCanvas {
         const maxDate = sortedDates[sortedDates.length - 1];
         const minDateValue = this.parseDate(minDate);
         const maxDateValue = this.parseDate(maxDate);
+        const dateRange = maxDateValue - minDateValue;
         
         // 日付の範囲を拡張して、最初と最後の日付に余裕を持たせる
         // 最初の日付の0.5日前から最後の日付の0.5日後までの範囲でマッピング
@@ -871,12 +1176,22 @@ class ChartCanvas {
         const extendedMaxDateValue = maxDateValue + 0.5;
         const extendedDateRange = extendedMaxDateValue - extendedMinDateValue;
 
+        // データの期間に応じてフィルタリング
+        let datesToRender = sortedDates;
+        if (dateRange >= 60 && dateRange <= 120) {
+            // 3ヶ月データ（60日〜120日）の場合は月初の1日と日曜日を表示
+            datesToRender = this.filterDatesForThreeMonths(sortedDates);
+        } else if (dateRange > 120) {
+            // 1年データ（120日超）の場合は月初の1日のみを表示（月毎）
+            datesToRender = this.filterDatesForOneYear(sortedDates);
+        }
+
         // 各日付ごとに目盛り線とラベルを描画
         let prevYear = '';
         let prevMonth = '';
 
-        for (let i = 0; i < sortedDates.length; i++) {
-            const date = sortedDates[i];
+        for (let i = 0; i < datesToRender.length; i++) {
+            const date = datesToRender[i];
             const dateValue = this.parseDate(date);
             const year = date.substring(0, 4);
             const month = date.substring(4, 6);
@@ -956,7 +1271,7 @@ class ChartCanvas {
 
         const dateChart = this.dateCharts[0];
         const tickLineLength = 5; // 目盛り線の長さ
-        const fontSize = ChartCanvas.FONT_SIZE_NORMAL;
+        const fontSize = ChartCanvas.FONT_SIZE_SMALL;
         const labelMargin = 5; // ラベルと目盛り線の間隔
 
         // Y軸の線を描画: (0,0)から(0,1)へ
@@ -1044,7 +1359,7 @@ class ChartCanvas {
         }
 
         const tickLineLength = 5; // 目盛り線の長さ
-        const fontSize = ChartCanvas.FONT_SIZE_NORMAL;
+        const fontSize = ChartCanvas.FONT_SIZE_SMALL;
         const labelMargin = 5; // ラベルと目盛り線の間隔
 
         // 右スケールの線を描画: (1,0)から(1,1)へ
@@ -1205,11 +1520,21 @@ class ChartCanvas {
     /**
      * 日付文字列（YYYYMMDD形式）を数値に変換
      * @param {string} dateStr - 日付文字列（'YYYYMMDD'形式）
-     * @returns {number} 日付の数値表現
+     * @returns {number} 日付の数値表現（基準日からの経過日数）
      */
     parseDate(dateStr) {
-        // YYYYMMDD形式を数値に変換（例: '20250101' -> 20250101）
-        return parseInt(dateStr, 10);
+        // YYYYMMDD形式を解析
+        const year = parseInt(dateStr.substring(0, 4), 10);
+        const month = parseInt(dateStr.substring(4, 6), 10) - 1; // 月は0始まり
+        const day = parseInt(dateStr.substring(6, 8), 10);
+        
+        // Dateオブジェクトを作成して、基準日（2000-01-01）からの経過日数に変換
+        const date = new Date(year, month, day);
+        const baseDate = new Date(2000, 0, 1); // 基準日: 2000-01-01
+        const diffTime = date.getTime() - baseDate.getTime();
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        
+        return diffDays;
     }
 
     /**
@@ -1288,7 +1613,7 @@ class ChartCanvas {
                 // 原点が下なので、1.0 - yRatioで反転
                 const y = plotArea.originY - yRatio * plotArea.height;
 
-                points.push({ x, y });
+                points.push({ x, y, comment: item.tooltip || '', value: item.value, date: item.date });
             }
 
             if (points.length === 0) {
@@ -1317,6 +1642,22 @@ class ChartCanvas {
             // 'solid'の場合は何も設定しない（デフォルト）
 
             svg.appendChild(path);
+
+            // マーカーを描画（showMarkersがtrueの場合）
+            if (line.showMarkers) {
+                for (let j = 0; j < points.length; j++) {
+                    const point = points[j];
+                    this.renderMarker(svg, point.x, point.y, point.value, point.date, point.comment, line.color || 'black', dateChart);
+                }
+            }
+
+            // コメントを描画
+            for (let j = 0; j < points.length; j++) {
+                const point = points[j];
+                if (point.comment) {
+                    this.renderComment(svg, plotArea, point.x, point.y, point.comment, line.color || 'black');
+                }
+            }
         }
     }
 
@@ -1416,11 +1757,131 @@ class ChartCanvas {
                 rect.setAttribute('width', barWidth);
                 rect.setAttribute('height', barBottom - barTop);
                 rect.setAttribute('fill', bar.color || 'blue');
+                rect.setAttribute('fill-opacity', '0.7'); // 内部の透明度を70%に設定
                 rect.setAttribute('stroke', 'none');
 
+                // ツールチップを追加（2行表示）
+                const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+                const yAxisFormat = bar.secondAxis ? (dateChart.secondAxisFormat || '#,##0') : (dateChart.yAxisFormat || '#,##0');
+                const formattedValue = this.formatNumber(item.value, yAxisFormat);
+                const formattedDate = this.formatDateToYYYYMMDD(item.date);
+                
+                // 1行目: 日付、2行目: 値（コメントがある場合は値 + コメント）
+                let tooltipText = formattedDate;
+                if (item.tooltip && item.tooltip.trim()) {
+                    tooltipText += '\n' + formattedValue + ' ' + item.tooltip.trim();
+                } else {
+                    tooltipText += '\n' + formattedValue;
+                }
+                
+                title.textContent = tooltipText;
+                rect.appendChild(title);
+
                 svg.appendChild(rect);
+
+                // コメントを描画
+                if (item.tooltip) {
+                    this.renderComment(svg, plotArea, x, barTop, item.tooltip, bar.color || 'blue');
+                }
             }
         }
+    }
+
+    /**
+     * マーカーを描画（線グラフのデータポイントに丸を表示）
+     * @param {SVGElement} svg - SVG要素
+     * @param {number} x - X座標
+     * @param {number} y - Y座標（データポイントの位置）
+     * @param {number} value - 値
+     * @param {string} date - 日付（'YYYYMMDD'形式）
+     * @param {string} comment - コメントテキスト（オプション）
+     * @param {string} color - 系列の色
+     * @param {DateChart} dateChart - DateChartインスタンス（フォーマット用）
+     */
+    renderMarker(svg, x, y, value, date, comment, color, dateChart) {
+        const markerRadius = 4; // マーカーの半径
+        
+        // マーカーの円を描画
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', x);
+        circle.setAttribute('cy', y);
+        circle.setAttribute('r', markerRadius);
+        circle.setAttribute('fill', color);
+        circle.setAttribute('stroke', '#fff');
+        circle.setAttribute('stroke-width', '1');
+        
+        // マウスオーバーでツールチップを表示（2行表示）
+        const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        const yAxisFormat = dateChart.yAxisFormat || '#,##0';
+        const formattedValue = this.formatNumber(value, yAxisFormat);
+        const formattedDate = this.formatDateToYYYYMMDD(date);
+        
+        // 1行目: 日付、2行目: 値（コメントがある場合は値 + コメント）
+        let tooltipText = formattedDate;
+        if (comment && comment.trim()) {
+            tooltipText += '\n' + formattedValue + ' ' + comment.trim();
+        } else {
+            tooltipText += '\n' + formattedValue;
+        }
+        
+        title.textContent = tooltipText;
+        circle.appendChild(title);
+        
+        svg.appendChild(circle);
+    }
+
+    /**
+     * コメントを描画
+     * @param {SVGElement} svg - SVG要素
+     * @param {Object} plotArea - 描画エリアの情報
+     * @param {number} x - X座標
+     * @param {number} y - Y座標（データポイントの位置）
+     * @param {string} comment - コメントテキスト
+     * @param {string} color - 系列の色
+     */
+    renderComment(svg, plotArea, x, y, comment, color) {
+        if (!comment || comment.trim() === '') {
+            return;
+        }
+
+        const fontSize = ChartCanvas.FONT_SIZE_SMALL;
+        const metrics = this.measureFontMetrics(fontSize);
+        const commentText = comment.trim();
+        const textWidth = this.getTextWidth(commentText, fontSize);
+        
+        // コメントの位置を決定
+        // デフォルトはデータポイントの上
+        let commentX = x;
+        let commentY = y - 10; // データポイントから10px上
+        
+        // グラフの上端に近い場合は下に表示
+        const topMargin = 10;
+        if (commentY < plotArea.topRightY + topMargin) {
+            commentY = y + metrics.height + 5; // データポイントから下に表示
+        }
+        
+        // グラフの左端に近い場合は右にずらす
+        const leftMargin = 5;
+        if (commentX < plotArea.originX + leftMargin) {
+            commentX = plotArea.originX + leftMargin;
+        }
+        
+        // グラフの右端に近い場合は左にずらす
+        const rightMargin = 5;
+        if (commentX + textWidth > plotArea.topRightX - rightMargin) {
+            commentX = plotArea.topRightX - rightMargin - textWidth;
+        }
+        
+        // コメントテキストを描画
+        const commentElement = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        commentElement.setAttribute('class', 'chart-text');
+        commentElement.setAttribute('x', commentX);
+        commentElement.setAttribute('y', commentY);
+        commentElement.setAttribute('text-anchor', 'middle');
+        commentElement.setAttribute('dominant-baseline', 'hanging');
+        commentElement.setAttribute('style', `font-size: ${fontSize}px; fill: ${color};`);
+        commentElement.textContent = commentText;
+        svg.appendChild(commentElement);
     }
 
     /**
