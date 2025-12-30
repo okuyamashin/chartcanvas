@@ -25,6 +25,8 @@
         const chart_div = document.getElementById('chart_div');
         const chart = new ChartCanvas(chart_div);
         chart.size(1024, 600);
+        chart.title = '売上推移';
+        chart.subtitle = '2025/01/01 - 2025/01/09';
 
         function renderChart() {
             chart.render();
