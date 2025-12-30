@@ -1,0 +1,22 @@
+{
+  "chart": {
+    "width": 1024,
+    "height": 600,
+    "title": "売上の分布（店舗別）",
+    "subtitle": "各店舗の売上データの分布を比較"
+  },
+  "chartType": "histogram",
+  "histogram": {
+    "xAxisTitle": "売上",
+    "yAxisTitle": "頻度",
+    "xAxisFormat": "#,##0",
+    "yAxisFormat": "#,##0",
+    "curveMode": true,
+    "xGrid": true,
+    "yGrid": true
+  },
+  "tsv": {
+    "valueTitle": "値",
+    "groupTitle": "店舗名"
+  }
+}

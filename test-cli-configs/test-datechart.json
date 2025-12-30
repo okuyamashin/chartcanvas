@@ -1,0 +1,45 @@
+{
+  "chart": {
+    "width": 1024,
+    "height": 600,
+    "title": "売上・客数推移",
+    "subtitle": "7日分のデータ"
+  },
+  "chartType": "dateChart",
+  "dateChart": {
+    "xAxisTitle": "日付",
+    "yAxisTitle": "売上",
+    "yAxisScale": "円",
+    "yAxisFormat": "#,##0",
+    "secondAxis": true,
+    "secondAxisTitle": "客数",
+    "secondAxisScale": "人",
+    "secondAxisFormat": "#,##0",
+    "dateFormat": "auto",
+    "xGrid": false,
+    "yGrid": false
+  },
+  "tsv": {
+    "dateTitle": "日付",
+    "commentTitle": "コメント",
+    "series": [
+      {
+        "type": "line",
+        "title": "売上",
+        "column": "売上",
+        "color": "red",
+        "lineWidth": 2,
+        "lineType": "solid",
+        "secondAxis": false,
+        "showMarkers": true
+      },
+      {
+        "type": "bar",
+        "title": "客数",
+        "column": "客数",
+        "color": "blue",
+        "secondAxis": true
+      }
+    ]
+  }
+}

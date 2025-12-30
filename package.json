@@ -5,10 +5,16 @@
   "main": "build.js",
   "scripts": {
     "build": "node build.js",
-    "watch": "node build.js --watch"
+    "watch": "node build.js --watch",
+    "test:server": "node test-server-side.js",
+    "test:all": "node test-all-samples.js",
+    "test:cli": "bash test-cli.sh"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "puppeteer": "^24.34.0"
+  }
 }
 

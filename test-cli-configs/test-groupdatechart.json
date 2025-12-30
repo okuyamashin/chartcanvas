@@ -1,0 +1,29 @@
+{
+  "chart": {
+    "width": 1024,
+    "height": 600,
+    "title": "店舗別売上推移"
+  },
+  "chartType": "groupDateChart",
+  "dateChart": {
+    "xAxisTitle": "日付",
+    "yAxisTitle": "売上",
+    "yAxisScale": "円",
+    "yAxisFormat": "#,##0",
+    "dateFormat": "auto",
+    "xGrid": true,
+    "yGrid": true
+  },
+  "tsv": {
+    "dateTitle": "日付",
+    "valueTitle": "売上",
+    "groupTitle": "店舗名",
+    "commentTitle": "コメント",
+    "seriesType": "line",
+    "seriesOptions": {
+      "lineWidth": 2,
+      "lineType": "solid",
+      "showMarkers": true
+    }
+  }
+}
