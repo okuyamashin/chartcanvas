@@ -66,6 +66,44 @@ await loader.load();
 chart.render();
 ```
 
+### CLI Usage
+
+ChartCanvas can also be used from the command line:
+
+```bash
+# Using a config file
+cat data.tsv | node cli.js -c config.json > output.svg
+
+# Using inline JSON config
+cat data.tsv | node cli.js -j '{"chartType":"dateChart","tsv":{"dateTitle":"日付","series":[{"type":"line","title":"売上","column":"売上"}]}}' > output.svg
+```
+
+See [CLI Specification](./docs/21-CLI仕様.md) and [CLI Config JSON Specification](./docs/22-CLI設定JSON仕様.md) for details.
+
+## Sample Outputs
+
+### Date Chart (Line/Bar Chart)
+
+Example of a date chart with line and bar series:
+
+![Date Chart Sample](./docs/sample/output/chart-7days-2025-12-30.svg)
+
+### Group Date Chart
+
+Example of a group-based date chart showing multiple stores:
+
+![Group Date Chart Sample](./test-cli-output/test-groupdatechart.svg)
+
+### Histogram
+
+Example of a histogram showing data distribution:
+
+![Histogram Sample](./test-cli-output/test-histogram-group.svg)
+
+All sample outputs are available in:
+- `docs/sample/output/` - Sample HTML outputs
+- `test-cli-output/` - CLI test outputs
+
 ## Project Structure
 
 ```
@@ -109,6 +147,8 @@ Detailed documentation (in Japanese) is available in the `docs/` directory:
 - [API Specification](./docs/08-API仕様.md)
 - [Rendering Flow](./docs/19-レンダリング処理フロー.md)
 - [TSV Loader API](./docs/20-002.html仕様（TSVローダーAPI）.md)
+- [CLI Specification](./docs/21-CLI仕様.md)
+- [CLI Config JSON Specification](./docs/22-CLI設定JSON仕様.md)
 
 ## License
 
