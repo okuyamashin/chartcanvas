@@ -295,19 +295,11 @@ class TSVLoader {
         this.dateChart = dateChart;
         this.url = url;
         this.dateTitle = '';
-        this.valueTitle = ''; // 値列名（グループごとに自動的に系列を作成する場合）
         this.groupTitle = '';
         this.commentTitle = ''; // コメント列名
-        // 日付形式の設定（dateChartから継承、または個別に設定可能）
-        this.dateFormat = null; // nullの場合はdateChart.dateFormatを使用
         // 系列と列名のマッピング: Map<series, columnName> または Map<groupName, Map<series, columnName>>
         this.seriesMap = new Map();
         this.groupSeriesMap = new Map(); // グループ列がある場合用
-        // 自動系列作成用のオプション
-        this.autoCreateSeries = false; // valueTitleとgroupTitleが設定されている場合に自動的に系列を作成
-        this.seriesColors = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray'];
-        this.seriesType = 'line'; // 'line' または 'bar'
-        this.seriesOptions = {}; // 系列作成時の追加オプション
     }
 
     /**
@@ -373,91 +365,8 @@ class TSVLoader {
         }
 
         const commentIndex = this.commentTitle ? headers.indexOf(this.commentTitle) : -1;
-        
-        const valueIndex = autoMode ? headers.indexOf(this.valueTitle) : -1;
-        if (autoMode && valueIndex === -1) {
-            throw new Error(`Value column "${this.valueTitle}" not found in TSV file`);
-        }
 
-        // 自動モードの場合、データを先に読み込んでグループごとに系列を作成
-        if (autoMode) {
-            // グループごとのデータを収集
-            const dataByGroup = new Map(); // Map<groupName, Array<{date, value, comment}>>
-            
-            for (let i = 1; i < lines.length; i++) {
-                const line = lines[i].trim();
-                if (!line) continue;
-
-                const columns = line.split('\t');
-                const dateStr = columns[dateIndex]?.trim();
-                if (!dateStr) continue;
-
-                // 日付形式をYYYYMMDDに変換
-                const dateFormat = this.dateFormat || this.dateChart.dateFormat || 'auto';
-                const dateFormatted = normalizeDate(dateStr, dateFormat);
-
-                // groupIndexの範囲チェック
-                if (groupIndex < 0 || groupIndex >= columns.length) {
-                    continue;
-                }
-                
-                const groupName = (columns[groupIndex] || '').trim();
-                if (!groupName) {
-                    continue;
-                }
-
-                if (valueIndex < 0 || valueIndex >= columns.length) {
-                    continue; // 列数が足りない場合はスキップ
-                }
-
-                const valueStr = columns[valueIndex].trim();
-                const value = parseFloat(valueStr);
-                if (isNaN(value)) {
-                    continue; // 数値でない場合はスキップ
-                }
-
-                // コメントを取得（コメント列が指定されている場合）
-                const comment = (commentIndex >= 0 && columns[commentIndex]) ? columns[commentIndex].trim() : '';
-
-                if (!dataByGroup.has(groupName)) {
-                    dataByGroup.set(groupName, []);
-                }
-                dataByGroup.get(groupName).push({ date: dateFormatted, value, comment });
-            }
-
-            // グループごとに系列を作成してデータを追加
-            const sortedGroupNames = Array.from(dataByGroup.keys()).sort();
-            let colorIndex = 0;
-
-            for (const groupName of sortedGroupNames) {
-                const data = dataByGroup.get(groupName);
-                
-                // 系列を作成
-                const seriesOptions = {
-                    title: groupName,
-                    color: this.seriesColors[colorIndex % this.seriesColors.length],
-                    ...this.seriesOptions
-                };
-                
-                const series = this.seriesType === 'bar' 
-                    ? this.dateChart.addBar(seriesOptions)
-                    : this.dateChart.addLine(seriesOptions);
-
-                // データを日付でソート
-                data.sort((a, b) => a.date.localeCompare(b.date));
-
-                // データを追加
-                for (const item of data) {
-                    series.addData(item.date, item.value, item.comment || '');
-                }
-
-                colorIndex++;
-            }
-
-            return; // 自動モードの場合はここで終了
-        }
-
-        // 通常モード: 系列と列名のマッピングから列のインデックスを取得
+        // 系列と列名のマッピングから列のインデックスを取得
         const seriesColumnMap = new Map(); // Map<series, columnIndex>
         
         if (groupIndex >= 0) {
@@ -1133,13 +1042,10 @@ class ChartCanvas {
     static FONT_SIZE_SMALL = 10;    // 小さい大きさ
     /**
      * コンストラクタ
-     * @param {HTMLElement} container - グラフを表示するDOM要素
+     * @param {HTMLElement|null} container - グラフを表示するDOM要素（nullの場合はSVGのみ生成、DOMには追加しない）
      */
     constructor(container) {
-        if (!container) {
-            throw new Error('ChartCanvas requires a container element');
-        }
-        this.container = container;
+        this.container = container; // nullを許可
         this.width = 1024;
         this.height = 600;
         // タイトル
@@ -1301,10 +1207,12 @@ class ChartCanvas {
      * SVGを描画（現在は枠だけ）
      */
     render() {
-        // 既存のSVGを削除
-        const existingSvg = this.container.querySelector('svg');
-        if (existingSvg) {
-            existingSvg.remove();
+        // 既存のSVGを削除（containerがnullの場合はスキップ）
+        if (this.container) {
+            const existingSvg = this.container.querySelector('svg');
+            if (existingSvg) {
+                existingSvg.remove();
+            }
         }
 
         // SVG要素を作成
@@ -1385,8 +1293,10 @@ class ChartCanvas {
             }
         }
 
-        // コンテナに追加
-        this.container.appendChild(svg);
+        // コンテナに追加（containerがnullの場合はスキップ）
+        if (this.container) {
+            this.container.appendChild(svg);
+        }
         
         // 現在のSVG要素を保存（後で取得できるように）
         this.currentSvg = svg;
@@ -1397,7 +1307,11 @@ class ChartCanvas {
      * @returns {SVGElement|null} SVG要素
      */
     getSVGElement() {
-        return this.container.querySelector('svg') || this.currentSvg || null;
+        if (this.container) {
+            return this.container.querySelector('svg') || this.currentSvg || null;
+        } else {
+            return this.currentSvg || null;
+        }
     }
 
     /**
@@ -1677,10 +1591,24 @@ class ChartCanvas {
      * @returns {string} yyyy/MM/dd形式の日付文字列
      */
     formatDateToYYYYMMDD(dateStr) {
-        const year = dateStr.substring(0, 4);
-        const month = dateStr.substring(4, 6);
-        const day = dateStr.substring(6, 8);
-        return `${year}/${month}/${day}`;
+        // YYYY-MM-DD形式またはYYYY/MM/DD形式の場合は正規化
+        let normalized = dateStr;
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            normalized = dateStr.replace(/-/g, '');
+        } else if (dateStr.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+            normalized = dateStr.replace(/\//g, '');
+        }
+        
+        // YYYYMMDD形式を期待
+        if (normalized.match(/^\d{8}$/)) {
+            const year = normalized.substring(0, 4);
+            const month = normalized.substring(4, 6);
+            const day = normalized.substring(6, 8);
+            return `${year}/${month}/${day}`;
+        }
+        
+        // フォールバック: そのまま返す
+        return dateStr;
     }
 
     /**
@@ -1826,9 +1754,18 @@ class ChartCanvas {
         for (let i = 0; i < datesToRender.length; i++) {
             const date = datesToRender[i];
             const dateValue = this.parseDate(date);
-            const year = date.substring(0, 4);
-            const month = date.substring(4, 6);
-            const day = date.substring(6, 8);
+            
+            // 日付をYYYYMMDD形式に正規化
+            let normalizedDate = date;
+            if (date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                normalizedDate = date.replace(/-/g, '');
+            } else if (date.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+                normalizedDate = date.replace(/\//g, '');
+            }
+            
+            const year = normalizedDate.substring(0, 4);
+            const month = normalizedDate.substring(4, 6);
+            const day = normalizedDate.substring(6, 8);
             
             // 描画エリア内での位置を計算（拡張された範囲で0.0から1.0の範囲）
             const ratio = extendedDateRange > 0 ? (dateValue - extendedMinDateValue) / extendedDateRange : 0;
@@ -2161,15 +2098,30 @@ class ChartCanvas {
             return [];
         }
 
+        // 最初の日付を正規化
+        let firstDate = dates[0];
+        if (firstDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            firstDate = firstDate.replace(/-/g, '');
+        } else if (firstDate.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+            firstDate = firstDate.replace(/\//g, '');
+        }
+        
         const groups = [];
         let currentGroup = [dates[0]];
-        let currentYear = dates[0].substring(0, 4);
-        let currentMonth = dates[0].substring(4, 6);
+        let currentYear = firstDate.substring(0, 4);
+        let currentMonth = firstDate.substring(4, 6);
 
         for (let i = 1; i < dates.length; i++) {
             const date = dates[i];
-            const year = date.substring(0, 4);
-            const month = date.substring(4, 6);
+            // 日付を正規化
+            let normalizedDate = date;
+            if (date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                normalizedDate = date.replace(/-/g, '');
+            } else if (date.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+                normalizedDate = date.replace(/\//g, '');
+            }
+            const year = normalizedDate.substring(0, 4);
+            const month = normalizedDate.substring(4, 6);
             const prevDate = dates[i - 1];
             const prevDateValue = this.parseDate(prevDate);
             const currentDateValue = this.parseDate(date);
@@ -2201,9 +2153,16 @@ class ChartCanvas {
         }
 
         const firstDate = dateGroup[0];
-        const firstYear = firstDate.substring(0, 4);
-        const firstMonth = firstDate.substring(4, 6);
-        const firstDay = firstDate.substring(6, 8);
+        // 日付を正規化
+        let normalizedFirstDate = firstDate;
+        if (firstDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            normalizedFirstDate = firstDate.replace(/-/g, '');
+        } else if (firstDate.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+            normalizedFirstDate = firstDate.replace(/\//g, '');
+        }
+        const firstYear = normalizedFirstDate.substring(0, 4);
+        const firstMonth = normalizedFirstDate.substring(4, 6);
+        const firstDay = normalizedFirstDate.substring(6, 8);
 
         // 1行目: 最初の日付の年/月/日
         const firstLine = `${firstYear}/${firstMonth}/${firstDay}`;
@@ -2215,9 +2174,16 @@ class ChartCanvas {
 
         for (let i = 1; i < dateGroup.length; i++) {
             const date = dateGroup[i];
-            const year = date.substring(0, 4);
-            const month = date.substring(4, 6);
-            const day = date.substring(6, 8);
+            // 日付を正規化
+            let normalizedDate = date;
+            if (date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                normalizedDate = date.replace(/-/g, '');
+            } else if (date.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+                normalizedDate = date.replace(/\//g, '');
+            }
+            const year = normalizedDate.substring(0, 4);
+            const month = normalizedDate.substring(4, 6);
+            const day = normalizedDate.substring(6, 8);
 
             // 年が変わった場合
             if (year !== prevYear) {
@@ -2245,10 +2211,18 @@ class ChartCanvas {
      * @returns {number} 日付の数値表現（基準日からの経過日数）
      */
     parseDate(dateStr) {
+        // 日付をYYYYMMDD形式に正規化
+        let normalizedDate = dateStr;
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            normalizedDate = dateStr.replace(/-/g, '');
+        } else if (dateStr.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+            normalizedDate = dateStr.replace(/\//g, '');
+        }
+        
         // YYYYMMDD形式を解析
-        const year = parseInt(dateStr.substring(0, 4), 10);
-        const month = parseInt(dateStr.substring(4, 6), 10) - 1; // 月は0始まり
-        const day = parseInt(dateStr.substring(6, 8), 10);
+        const year = parseInt(normalizedDate.substring(0, 4), 10);
+        const month = parseInt(normalizedDate.substring(4, 6), 10) - 1; // 月は0始まり
+        const day = parseInt(normalizedDate.substring(6, 8), 10);
         
         // Dateオブジェクトを作成して、基準日（2000-01-01）からの経過日数に変換
         const date = new Date(year, month, day);
