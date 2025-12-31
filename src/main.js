@@ -29,6 +29,7 @@ class ChartCanvas {
 
     /**
      * フォントメトリクスを測定（高さ、半角幅、全角幅）
+     * スタンドアロン対応のため固定値を使用
      * @param {number} fontSize - フォントサイズ
      * @returns {Object} {height, halfWidth, fullWidth}
      */
@@ -38,74 +39,17 @@ class ChartCanvas {
             return this.fontMetrics[fontSize];
         }
 
-        // 一時的なSVG要素を作成して測定
-        const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        tempSvg.setAttribute('width', 1000);
-        tempSvg.setAttribute('height', 1000);
-        tempSvg.style.position = 'absolute';
-        tempSvg.style.visibility = 'hidden';
-        tempSvg.style.top = '-9999px';
-        tempSvg.style.left = '-9999px';
-        document.body.appendChild(tempSvg);
-
-        // スタイルを追加
-        const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-        style.textContent = `
-            .measure-text {
-                font-family: ${this.fontFamily};
-                font-size: ${fontSize}px;
-            }
-        `;
-        tempSvg.appendChild(style);
-
-        // 半角文字（'M'）で幅を測定
-        const halfText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        halfText.setAttribute('class', 'measure-text');
-        halfText.setAttribute('x', 0);
-        halfText.setAttribute('y', fontSize);
-        halfText.textContent = 'M';
-        tempSvg.appendChild(halfText);
-        
-        // 全角文字（'あ'）で幅を測定
-        const fullText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        fullText.setAttribute('class', 'measure-text');
-        fullText.setAttribute('x', 0);
-        fullText.setAttribute('y', fontSize * 2);
-        fullText.textContent = 'あ';
-        tempSvg.appendChild(fullText);
-
-        // DOMに追加してから測定（getBBox()はレンダリング後に動作）
-        // 強制的に再描画を待つ
-        void tempSvg.offsetHeight; // レイアウトを強制
-
-        let halfWidth, fullWidth, height;
-        try {
-            halfWidth = halfText.getBBox().width;
-            fullWidth = fullText.getBBox().width;
-            const bbox = fullText.getBBox();
-            height = bbox.height;
-        } catch (e) {
-            // getBBox()が失敗した場合のフォールバック
-            // Canvas APIを使用して測定
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            ctx.font = `${fontSize}px ${this.fontFamily}`;
-            const halfMetrics = ctx.measureText('M');
-            const fullMetrics = ctx.measureText('あ');
-            halfWidth = halfMetrics.width;
-            fullWidth = fullMetrics.width;
-            height = fontSize * 1.2; // 概算値
-        }
-
-        // 一時要素を削除
-        document.body.removeChild(tempSvg);
-
-        // メトリクスをキャッシュ
+        // 固定値を使用（等幅フォントの一般的な特性に基づく）
+        // 半角文字: fontSize * 0.6
+        // 全角文字: fontSize * 1.0
+        // 高さ: fontSize * 1.2
         const metrics = {
-            height: height,
-            halfWidth: halfWidth,
-            fullWidth: fullWidth
+            height: fontSize * 1.2,
+            halfWidth: fontSize * 0.6,
+            fullWidth: fontSize * 1.0
         };
+        
+        // メトリクスをキャッシュ
         this.fontMetrics[fontSize] = metrics;
 
         return metrics;
@@ -113,6 +57,7 @@ class ChartCanvas {
 
     /**
      * テキストとフォントサイズから文字列のピクセル幅を取得
+     * スタンドアロン対応のため簡易計算を使用
      * @param {string} text - 測定するテキスト
      * @param {number} fontSize - フォントサイズ
      * @returns {number} テキストのピクセル幅
@@ -122,12 +67,25 @@ class ChartCanvas {
             return 0;
         }
 
-        // Canvas APIを使用して正確に測定
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        ctx.font = `${fontSize}px ${this.fontFamily}`;
-        const metrics = ctx.measureText(text);
-        return metrics.width;
+        // 固定値を使用した簡易計算
+        // 半角文字: fontSize * 0.6
+        // 全角文字: fontSize * 1.0
+        const metrics = this.measureFontMetrics(fontSize);
+        let width = 0;
+        
+        for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+            const charCode = char.charCodeAt(0);
+            // 半角文字の判定（ASCII文字、半角カナなど）
+            if (charCode <= 0x007F || (charCode >= 0xFF61 && charCode <= 0xFF9F)) {
+                width += metrics.halfWidth;
+            } else {
+                // 全角文字
+                width += metrics.fullWidth;
+            }
+        }
+        
+        return width;
     }
 
     /**
@@ -552,10 +510,24 @@ class ChartCanvas {
      * @returns {string} yyyy/MM/dd形式の日付文字列
      */
     formatDateToYYYYMMDD(dateStr) {
-        const year = dateStr.substring(0, 4);
-        const month = dateStr.substring(4, 6);
-        const day = dateStr.substring(6, 8);
-        return `${year}/${month}/${day}`;
+        // YYYY-MM-DD形式またはYYYY/MM/DD形式の場合は正規化
+        let normalized = dateStr;
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            normalized = dateStr.replace(/-/g, '');
+        } else if (dateStr.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+            normalized = dateStr.replace(/\//g, '');
+        }
+        
+        // YYYYMMDD形式を期待
+        if (normalized.match(/^\d{8}$/)) {
+            const year = normalized.substring(0, 4);
+            const month = normalized.substring(4, 6);
+            const day = normalized.substring(6, 8);
+            return `${year}/${month}/${day}`;
+        }
+        
+        // フォールバック: そのまま返す
+        return dateStr;
     }
 
     /**
@@ -701,9 +673,18 @@ class ChartCanvas {
         for (let i = 0; i < datesToRender.length; i++) {
             const date = datesToRender[i];
             const dateValue = this.parseDate(date);
-            const year = date.substring(0, 4);
-            const month = date.substring(4, 6);
-            const day = date.substring(6, 8);
+            
+            // 日付をYYYYMMDD形式に正規化
+            let normalizedDate = date;
+            if (date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                normalizedDate = date.replace(/-/g, '');
+            } else if (date.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+                normalizedDate = date.replace(/\//g, '');
+            }
+            
+            const year = normalizedDate.substring(0, 4);
+            const month = normalizedDate.substring(4, 6);
+            const day = normalizedDate.substring(6, 8);
             
             // 描画エリア内での位置を計算（拡張された範囲で0.0から1.0の範囲）
             const ratio = extendedDateRange > 0 ? (dateValue - extendedMinDateValue) / extendedDateRange : 0;
@@ -1036,15 +1017,30 @@ class ChartCanvas {
             return [];
         }
 
+        // 最初の日付を正規化
+        let firstDate = dates[0];
+        if (firstDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            firstDate = firstDate.replace(/-/g, '');
+        } else if (firstDate.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+            firstDate = firstDate.replace(/\//g, '');
+        }
+        
         const groups = [];
         let currentGroup = [dates[0]];
-        let currentYear = dates[0].substring(0, 4);
-        let currentMonth = dates[0].substring(4, 6);
+        let currentYear = firstDate.substring(0, 4);
+        let currentMonth = firstDate.substring(4, 6);
 
         for (let i = 1; i < dates.length; i++) {
             const date = dates[i];
-            const year = date.substring(0, 4);
-            const month = date.substring(4, 6);
+            // 日付を正規化
+            let normalizedDate = date;
+            if (date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                normalizedDate = date.replace(/-/g, '');
+            } else if (date.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+                normalizedDate = date.replace(/\//g, '');
+            }
+            const year = normalizedDate.substring(0, 4);
+            const month = normalizedDate.substring(4, 6);
             const prevDate = dates[i - 1];
             const prevDateValue = this.parseDate(prevDate);
             const currentDateValue = this.parseDate(date);
@@ -1076,9 +1072,16 @@ class ChartCanvas {
         }
 
         const firstDate = dateGroup[0];
-        const firstYear = firstDate.substring(0, 4);
-        const firstMonth = firstDate.substring(4, 6);
-        const firstDay = firstDate.substring(6, 8);
+        // 日付を正規化
+        let normalizedFirstDate = firstDate;
+        if (firstDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            normalizedFirstDate = firstDate.replace(/-/g, '');
+        } else if (firstDate.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+            normalizedFirstDate = firstDate.replace(/\//g, '');
+        }
+        const firstYear = normalizedFirstDate.substring(0, 4);
+        const firstMonth = normalizedFirstDate.substring(4, 6);
+        const firstDay = normalizedFirstDate.substring(6, 8);
 
         // 1行目: 最初の日付の年/月/日
         const firstLine = `${firstYear}/${firstMonth}/${firstDay}`;
@@ -1090,9 +1093,16 @@ class ChartCanvas {
 
         for (let i = 1; i < dateGroup.length; i++) {
             const date = dateGroup[i];
-            const year = date.substring(0, 4);
-            const month = date.substring(4, 6);
-            const day = date.substring(6, 8);
+            // 日付を正規化
+            let normalizedDate = date;
+            if (date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                normalizedDate = date.replace(/-/g, '');
+            } else if (date.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+                normalizedDate = date.replace(/\//g, '');
+            }
+            const year = normalizedDate.substring(0, 4);
+            const month = normalizedDate.substring(4, 6);
+            const day = normalizedDate.substring(6, 8);
 
             // 年が変わった場合
             if (year !== prevYear) {
@@ -1120,10 +1130,18 @@ class ChartCanvas {
      * @returns {number} 日付の数値表現（基準日からの経過日数）
      */
     parseDate(dateStr) {
+        // 日付をYYYYMMDD形式に正規化
+        let normalizedDate = dateStr;
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            normalizedDate = dateStr.replace(/-/g, '');
+        } else if (dateStr.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+            normalizedDate = dateStr.replace(/\//g, '');
+        }
+        
         // YYYYMMDD形式を解析
-        const year = parseInt(dateStr.substring(0, 4), 10);
-        const month = parseInt(dateStr.substring(4, 6), 10) - 1; // 月は0始まり
-        const day = parseInt(dateStr.substring(6, 8), 10);
+        const year = parseInt(normalizedDate.substring(0, 4), 10);
+        const month = parseInt(normalizedDate.substring(4, 6), 10) - 1; // 月は0始まり
+        const day = parseInt(normalizedDate.substring(6, 8), 10);
         
         // Dateオブジェクトを作成して、基準日（2000-01-01）からの経過日数に変換
         const date = new Date(year, month, day);

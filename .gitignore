@@ -39,3 +39,6 @@ build/
 # Uploaded SVG files
 docs/sample/output/
 
+# Test output
+test-output/
+
