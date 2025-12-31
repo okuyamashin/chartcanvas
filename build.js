@@ -59,10 +59,28 @@ function writeFile(filePath, content) {
 function build() {
     console.log('統合ファイルを生成中...');
     
+    // ファイルの存在確認（大文字小文字の違いに対応）
+    let actualDateChartPath = dateChartPath;
+    if (!fs.existsSync(dateChartPath)) {
+        // 小文字のファイルが見つからない場合、大文字を試す
+        const dateChartPathUpper = path.join(__dirname, 'src', 'dateChart.js');
+        if (fs.existsSync(dateChartPathUpper)) {
+            actualDateChartPath = dateChartPathUpper;
+            console.log(`注意: ${dateChartPath} が見つからないため、${actualDateChartPath} を使用します`);
+        }
+    }
+    
     // ファイルを読み込む
-    const dateChartContent = readFile(dateChartPath);
+    const dateChartContent = readFile(actualDateChartPath);
     const histogramChartContent = readFile(histogramChartPath);
     const mainContent = readFile(mainPath);
+    
+    // デバッグ: 読み込んだファイルの内容を確認
+    if (!dateChartContent.includes('if (autoMode)')) {
+        console.warn('警告: dateChart.jsに "if (autoMode)" が見つかりません');
+    } else {
+        console.log('✓ dateChart.jsに "if (autoMode)" が見つかりました');
+    }
     
     // dateChart.jsからグローバルスコープへの公開部分を削除
     // (最後にまとめて追加するため)
