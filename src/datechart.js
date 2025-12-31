@@ -286,8 +286,11 @@ class TSVLoader {
         this.dateChart = dateChart;
         this.url = url;
         this.dateTitle = '';
+        this.valueTitle = ''; // 値列名（autoMode用）
         this.groupTitle = '';
         this.commentTitle = ''; // コメント列名
+        this.seriesType = 'line'; // 系列タイプ（'line' または 'bar'）
+        this.seriesOptions = {}; // 系列オプション（lineWidth, lineType, showMarkersなど）
         // 系列と列名のマッピング: Map<series, columnName> または Map<groupName, Map<series, columnName>>
         this.seriesMap = new Map();
         this.groupSeriesMap = new Map(); // グループ列がある場合用
@@ -323,6 +326,10 @@ class TSVLoader {
 
         // valueTitleとgroupTitleが設定されている場合、自動的に系列を作成するモード
         const autoMode = this.valueTitle && this.groupTitle;
+        
+        console.log('TSVLoader.load(): autoMode =', autoMode);
+        console.log('TSVLoader.load(): this.valueTitle =', this.valueTitle);
+        console.log('TSVLoader.load(): this.groupTitle =', this.groupTitle);
 
         if (!autoMode && this.seriesMap.size === 0 && this.groupSeriesMap.size === 0) {
             throw new Error('At least one series must be added using addSeries() or set valueTitle and groupTitle for auto mode');
@@ -356,31 +363,79 @@ class TSVLoader {
         }
 
         const commentIndex = this.commentTitle ? headers.indexOf(this.commentTitle) : -1;
+        const valueIndex = autoMode ? headers.indexOf(this.valueTitle) : -1;
+        
+        if (autoMode && valueIndex === -1) {
+            throw new Error(`Value column "${this.valueTitle}" not found in TSV file`);
+        }
 
         // 系列と列名のマッピングから列のインデックスを取得
-        const seriesColumnMap = new Map(); // Map<series, columnIndex>
+        const seriesColumnMap = new Map(); // Map<series, {columnIndex, groupName}>
         
-        if (groupIndex >= 0) {
-            // グループ列がある場合
+        if (autoMode) {
+            // autoModeの場合、グループごとに自動的に系列を作成
+            // まず、すべてのグループ名を収集
+            const groupNames = new Set();
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                const columns = line.split('\t');
+                if (groupIndex >= 0 && columns[groupIndex]) {
+                    groupNames.add(columns[groupIndex].trim());
+                }
+            }
+            
+            console.log('autoMode: グループ名の収集完了', Array.from(groupNames));
+            console.log('autoMode: valueIndex', valueIndex);
+            
+            // 各グループに対して系列を作成
+            const colorPalette = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray'];
+            let colorIndex = 0;
+            
+            for (const groupName of groupNames) {
+                let series;
+                if (this.seriesType === 'bar') {
+                    series = this.dateChart.addBar({
+                        title: groupName,
+                        color: colorPalette[colorIndex % colorPalette.length],
+                        ...this.seriesOptions
+                    });
+                } else {
+                    series = this.dateChart.addLine({
+                        title: groupName,
+                        color: colorPalette[colorIndex % colorPalette.length],
+                        ...this.seriesOptions
+                    });
+                }
+                colorIndex++;
+                
+                console.log('autoMode: 系列を作成', groupName, series);
+                
+                // 系列を直接キーとして使用し、グループ名は値の一部として保持
+                seriesColumnMap.set(series, { columnIndex: valueIndex, groupName });
+            }
+            
+            console.log('autoMode: seriesColumnMap.size', seriesColumnMap.size);
+        } else if (groupIndex >= 0) {
+            // グループ列がある場合（手動モード）
             for (const [groupName, groupSeriesMap] of this.groupSeriesMap.entries()) {
                 for (const [series, columnName] of groupSeriesMap.entries()) {
                     const columnIndex = headers.indexOf(columnName);
                     if (columnIndex === -1) {
                         throw new Error(`Column "${columnName}" not found in TSV file`);
                     }
-                    // グループ名と系列の組み合わせをキーにする
-                    const key = `${groupName}::${series}`;
-                    seriesColumnMap.set(key, { series, columnIndex, groupName });
+                    // 系列を直接キーとして使用
+                    seriesColumnMap.set(series, { columnIndex, groupName });
                 }
             }
         } else {
-            // グループ列がない場合
+            // グループ列がない場合（手動モード）
             for (const [series, columnName] of this.seriesMap.entries()) {
                 const columnIndex = headers.indexOf(columnName);
                 if (columnIndex === -1) {
                     throw new Error(`Column "${columnName}" not found in TSV file`);
                 }
-                seriesColumnMap.set(series, { series, columnIndex });
+                seriesColumnMap.set(series, { columnIndex });
             }
         }
 
@@ -404,7 +459,7 @@ class TSVLoader {
             const groupName = groupIndex >= 0 ? (columns[groupIndex] || '').trim() : null;
 
             // 各系列に対してデータを追加
-            for (const [key, { series, columnIndex, groupName: expectedGroupName }] of seriesColumnMap.entries()) {
+            for (const [series, { columnIndex, groupName: expectedGroupName }] of seriesColumnMap.entries()) {
                 // グループ列がある場合、グループ名が一致する場合のみ処理
                 if (groupIndex >= 0 && expectedGroupName !== groupName) {
                     continue;

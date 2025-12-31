@@ -295,8 +295,11 @@ class TSVLoader {
         this.dateChart = dateChart;
         this.url = url;
         this.dateTitle = '';
+        this.valueTitle = ''; // 値列名（autoMode用）
         this.groupTitle = '';
         this.commentTitle = ''; // コメント列名
+        this.seriesType = 'line'; // 系列タイプ（'line' または 'bar'）
+        this.seriesOptions = {}; // 系列オプション（lineWidth, lineType, showMarkersなど）
         // 系列と列名のマッピング: Map<series, columnName> または Map<groupName, Map<series, columnName>>
         this.seriesMap = new Map();
         this.groupSeriesMap = new Map(); // グループ列がある場合用
@@ -332,6 +335,10 @@ class TSVLoader {
 
         // valueTitleとgroupTitleが設定されている場合、自動的に系列を作成するモード
         const autoMode = this.valueTitle && this.groupTitle;
+        
+        console.log('TSVLoader.load(): autoMode =', autoMode);
+        console.log('TSVLoader.load(): this.valueTitle =', this.valueTitle);
+        console.log('TSVLoader.load(): this.groupTitle =', this.groupTitle);
 
         if (!autoMode && this.seriesMap.size === 0 && this.groupSeriesMap.size === 0) {
             throw new Error('At least one series must be added using addSeries() or set valueTitle and groupTitle for auto mode');
@@ -365,31 +372,79 @@ class TSVLoader {
         }
 
         const commentIndex = this.commentTitle ? headers.indexOf(this.commentTitle) : -1;
+        const valueIndex = autoMode ? headers.indexOf(this.valueTitle) : -1;
+        
+        if (autoMode && valueIndex === -1) {
+            throw new Error(`Value column "${this.valueTitle}" not found in TSV file`);
+        }
 
         // 系列と列名のマッピングから列のインデックスを取得
-        const seriesColumnMap = new Map(); // Map<series, columnIndex>
+        const seriesColumnMap = new Map(); // Map<series, {columnIndex, groupName}>
         
-        if (groupIndex >= 0) {
-            // グループ列がある場合
+        if (autoMode) {
+            // autoModeの場合、グループごとに自動的に系列を作成
+            // まず、すべてのグループ名を収集
+            const groupNames = new Set();
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                const columns = line.split('\t');
+                if (groupIndex >= 0 && columns[groupIndex]) {
+                    groupNames.add(columns[groupIndex].trim());
+                }
+            }
+            
+            console.log('autoMode: グループ名の収集完了', Array.from(groupNames));
+            console.log('autoMode: valueIndex', valueIndex);
+            
+            // 各グループに対して系列を作成
+            const colorPalette = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray'];
+            let colorIndex = 0;
+            
+            for (const groupName of groupNames) {
+                let series;
+                if (this.seriesType === 'bar') {
+                    series = this.dateChart.addBar({
+                        title: groupName,
+                        color: colorPalette[colorIndex % colorPalette.length],
+                        ...this.seriesOptions
+                    });
+                } else {
+                    series = this.dateChart.addLine({
+                        title: groupName,
+                        color: colorPalette[colorIndex % colorPalette.length],
+                        ...this.seriesOptions
+                    });
+                }
+                colorIndex++;
+                
+                console.log('autoMode: 系列を作成', groupName, series);
+                
+                // 系列を直接キーとして使用し、グループ名は値の一部として保持
+                seriesColumnMap.set(series, { columnIndex: valueIndex, groupName });
+            }
+            
+            console.log('autoMode: seriesColumnMap.size', seriesColumnMap.size);
+        } else if (groupIndex >= 0) {
+            // グループ列がある場合（手動モード）
             for (const [groupName, groupSeriesMap] of this.groupSeriesMap.entries()) {
                 for (const [series, columnName] of groupSeriesMap.entries()) {
                     const columnIndex = headers.indexOf(columnName);
                     if (columnIndex === -1) {
                         throw new Error(`Column "${columnName}" not found in TSV file`);
                     }
-                    // グループ名と系列の組み合わせをキーにする
-                    const key = `${groupName}::${series}`;
-                    seriesColumnMap.set(key, { series, columnIndex, groupName });
+                    // 系列を直接キーとして使用
+                    seriesColumnMap.set(series, { columnIndex, groupName });
                 }
             }
         } else {
-            // グループ列がない場合
+            // グループ列がない場合（手動モード）
             for (const [series, columnName] of this.seriesMap.entries()) {
                 const columnIndex = headers.indexOf(columnName);
                 if (columnIndex === -1) {
                     throw new Error(`Column "${columnName}" not found in TSV file`);
                 }
-                seriesColumnMap.set(series, { series, columnIndex });
+                seriesColumnMap.set(series, { columnIndex });
             }
         }
 
@@ -413,7 +468,7 @@ class TSVLoader {
             const groupName = groupIndex >= 0 ? (columns[groupIndex] || '').trim() : null;
 
             // 各系列に対してデータを追加
-            for (const [key, { series, columnIndex, groupName: expectedGroupName }] of seriesColumnMap.entries()) {
+            for (const [series, { columnIndex, groupName: expectedGroupName }] of seriesColumnMap.entries()) {
                 // グループ列がある場合、グループ名が一致する場合のみ処理
                 if (groupIndex >= 0 && expectedGroupName !== groupName) {
                     continue;
@@ -1042,10 +1097,13 @@ class ChartCanvas {
     static FONT_SIZE_SMALL = 10;    // 小さい大きさ
     /**
      * コンストラクタ
-     * @param {HTMLElement|null} container - グラフを表示するDOM要素（nullの場合はSVGのみ生成、DOMには追加しない）
+     * @param {HTMLElement} container - グラフを表示するDOM要素
      */
     constructor(container) {
-        this.container = container; // nullを許可
+        if (!container) {
+            throw new Error('ChartCanvas requires a container element');
+        }
+        this.container = container;
         this.width = 1024;
         this.height = 600;
         // タイトル
@@ -1060,6 +1118,7 @@ class ChartCanvas {
 
     /**
      * フォントメトリクスを測定（高さ、半角幅、全角幅）
+     * スタンドアロン対応のため固定値を使用
      * @param {number} fontSize - フォントサイズ
      * @returns {Object} {height, halfWidth, fullWidth}
      */
@@ -1069,74 +1128,17 @@ class ChartCanvas {
             return this.fontMetrics[fontSize];
         }
 
-        // 一時的なSVG要素を作成して測定
-        const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        tempSvg.setAttribute('width', 1000);
-        tempSvg.setAttribute('height', 1000);
-        tempSvg.style.position = 'absolute';
-        tempSvg.style.visibility = 'hidden';
-        tempSvg.style.top = '-9999px';
-        tempSvg.style.left = '-9999px';
-        document.body.appendChild(tempSvg);
-
-        // スタイルを追加
-        const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-        style.textContent = `
-            .measure-text {
-                font-family: ${this.fontFamily};
-                font-size: ${fontSize}px;
-            }
-        `;
-        tempSvg.appendChild(style);
-
-        // 半角文字（'M'）で幅を測定
-        const halfText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        halfText.setAttribute('class', 'measure-text');
-        halfText.setAttribute('x', 0);
-        halfText.setAttribute('y', fontSize);
-        halfText.textContent = 'M';
-        tempSvg.appendChild(halfText);
-        
-        // 全角文字（'あ'）で幅を測定
-        const fullText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        fullText.setAttribute('class', 'measure-text');
-        fullText.setAttribute('x', 0);
-        fullText.setAttribute('y', fontSize * 2);
-        fullText.textContent = 'あ';
-        tempSvg.appendChild(fullText);
-
-        // DOMに追加してから測定（getBBox()はレンダリング後に動作）
-        // 強制的に再描画を待つ
-        void tempSvg.offsetHeight; // レイアウトを強制
-
-        let halfWidth, fullWidth, height;
-        try {
-            halfWidth = halfText.getBBox().width;
-            fullWidth = fullText.getBBox().width;
-            const bbox = fullText.getBBox();
-            height = bbox.height;
-        } catch (e) {
-            // getBBox()が失敗した場合のフォールバック
-            // Canvas APIを使用して測定
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            ctx.font = `${fontSize}px ${this.fontFamily}`;
-            const halfMetrics = ctx.measureText('M');
-            const fullMetrics = ctx.measureText('あ');
-            halfWidth = halfMetrics.width;
-            fullWidth = fullMetrics.width;
-            height = fontSize * 1.2; // 概算値
-        }
-
-        // 一時要素を削除
-        document.body.removeChild(tempSvg);
-
-        // メトリクスをキャッシュ
+        // 固定値を使用（等幅フォントの一般的な特性に基づく）
+        // 半角文字: fontSize * 0.6
+        // 全角文字: fontSize * 1.0
+        // 高さ: fontSize * 1.2
         const metrics = {
-            height: height,
-            halfWidth: halfWidth,
-            fullWidth: fullWidth
+            height: fontSize * 1.2,
+            halfWidth: fontSize * 0.6,
+            fullWidth: fontSize * 1.0
         };
+        
+        // メトリクスをキャッシュ
         this.fontMetrics[fontSize] = metrics;
 
         return metrics;
@@ -1144,6 +1146,7 @@ class ChartCanvas {
 
     /**
      * テキストとフォントサイズから文字列のピクセル幅を取得
+     * スタンドアロン対応のため簡易計算を使用
      * @param {string} text - 測定するテキスト
      * @param {number} fontSize - フォントサイズ
      * @returns {number} テキストのピクセル幅
@@ -1153,12 +1156,25 @@ class ChartCanvas {
             return 0;
         }
 
-        // Canvas APIを使用して正確に測定
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        ctx.font = `${fontSize}px ${this.fontFamily}`;
-        const metrics = ctx.measureText(text);
-        return metrics.width;
+        // 固定値を使用した簡易計算
+        // 半角文字: fontSize * 0.6
+        // 全角文字: fontSize * 1.0
+        const metrics = this.measureFontMetrics(fontSize);
+        let width = 0;
+        
+        for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+            const charCode = char.charCodeAt(0);
+            // 半角文字の判定（ASCII文字、半角カナなど）
+            if (charCode <= 0x007F || (charCode >= 0xFF61 && charCode <= 0xFF9F)) {
+                width += metrics.halfWidth;
+            } else {
+                // 全角文字
+                width += metrics.fullWidth;
+            }
+        }
+        
+        return width;
     }
 
     /**
@@ -1207,12 +1223,10 @@ class ChartCanvas {
      * SVGを描画（現在は枠だけ）
      */
     render() {
-        // 既存のSVGを削除（containerがnullの場合はスキップ）
-        if (this.container) {
-            const existingSvg = this.container.querySelector('svg');
-            if (existingSvg) {
-                existingSvg.remove();
-            }
+        // 既存のSVGを削除
+        const existingSvg = this.container.querySelector('svg');
+        if (existingSvg) {
+            existingSvg.remove();
         }
 
         // SVG要素を作成
@@ -1293,10 +1307,8 @@ class ChartCanvas {
             }
         }
 
-        // コンテナに追加（containerがnullの場合はスキップ）
-        if (this.container) {
-            this.container.appendChild(svg);
-        }
+        // コンテナに追加
+        this.container.appendChild(svg);
         
         // 現在のSVG要素を保存（後で取得できるように）
         this.currentSvg = svg;
@@ -1307,11 +1319,7 @@ class ChartCanvas {
      * @returns {SVGElement|null} SVG要素
      */
     getSVGElement() {
-        if (this.container) {
-            return this.container.querySelector('svg') || this.currentSvg || null;
-        } else {
-            return this.currentSvg || null;
-        }
+        return this.container.querySelector('svg') || this.currentSvg || null;
     }
 
     /**
