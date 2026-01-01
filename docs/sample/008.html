@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>円グラフサンプル（スライス強調）</title>
+    <script src="../../chartcanvas.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        #chart_div {
+            border: 1px solid #ccc;
+            margin: 20px 0;
+        }
+        .controls {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f5f5f5;
+            border-radius: 5px;
+        }
+        .controls label {
+            display: inline-block;
+            margin-right: 15px;
+            font-weight: bold;
+        }
+        .controls select, .controls input {
+            padding: 5px 10px;
+            margin-right: 20px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+        }
+        .controls button {
+            padding: 5px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .controls button:hover {
+            background-color: #45a049;
+        }
+        .info {
+            margin: 20px 0;
+            padding: 10px;
+            background-color: #e7f3ff;
+            border-left: 4px solid #2196F3;
+        }
+    </style>
+</head>
+<body>
+    <h1>円グラフサンプル（スライス強調）</h1>
+    <p>特定の円弧を放射線方向にずらして強調表示する機能をテストします。</p>
+    
+    <div class="info">
+        <strong>スライス強調機能について:</strong><br>
+        特定のセグメント（円弧）を放射線方向にずらすことで、視覚的に強調できます。
+        インデックス（0から始まる）とオフセット距離（ピクセル）を指定してください。
+    </div>
+    
+    <div class="controls">
+        <label for="sliceIndex">強調するスライスのインデックス:</label>
+        <input type="number" id="sliceIndex" value="0" min="0" max="10" style="width: 80px;">
+        
+        <label for="offset">オフセット距離（ピクセル）:</label>
+        <input type="number" id="offset" value="15" min="0" max="50" style="width: 80px;">
+        
+        <button onclick="applyOffset()">オフセットを適用</button>
+        <button onclick="resetOffset()">リセット</button>
+        <button onclick="updateChart()">グラフを更新</button>
+    </div>
+    
+    <div id="chart_div"></div>
+
+    <script>
+        let chart = null;
+        let pieChart = null;
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            await initializeChart();
+        });
+
+        async function initializeChart() {
+            const chart_div = document.getElementById('chart_div');
+            chart = new ChartCanvas(chart_div);
+            chart.size(800, 600);
+            chart.title = '商品別売上構成比';
+            chart.subtitle = '2024年度';
+
+            pieChart = chart.addPieChart();
+            pieChart.title = '商品別売上構成比';
+            pieChart.subtitle = '2024年度';
+
+            // TSVローダーを使用してデータを読み込む
+            const loader = pieChart.tsvLoader('./data-pie.tsv');
+            loader.categoryTitle = 'カテゴリ名';
+            loader.valueTitle = '値';
+
+            try {
+                await loader.load();
+                chart.render();
+            } catch (error) {
+                console.error('TSVファイルの読み込みエラー:', error);
+                chart.render();
+            }
+        }
+
+        function applyOffset() {
+            if (!pieChart) return;
+
+            const sliceIndex = parseInt(document.getElementById('sliceIndex').value);
+            const offset = parseFloat(document.getElementById('offset').value);
+
+            if (isNaN(sliceIndex) || isNaN(offset)) {
+                alert('有効な数値を入力してください');
+                return;
+            }
+
+            // スライスのオフセットを設定
+            if (pieChart.setSliceOffset) {
+                pieChart.setSliceOffset(sliceIndex, offset);
+                chart.render();
+            } else {
+                alert('setSliceOffset メソッドが利用できません');
+            }
+        }
+
+        function resetOffset() {
+            if (!pieChart) return;
+
+            // すべてのオフセットをリセット
+            if (pieChart.resetSliceOffsets) {
+                pieChart.resetSliceOffsets();
+                chart.render();
+            } else {
+                alert('resetSliceOffsets メソッドが利用できません');
+            }
+        }
+
+        async function updateChart() {
+            if (!chart || !pieChart) return;
+            chart.render();
+        }
+    </script>
+</body>
+</html>
+

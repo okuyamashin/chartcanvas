@@ -2373,11 +2373,22 @@ class ChartCanvas {
                 color = pieChart.colors[i % pieChart.colors.length];
             }
             
-            // 開始点と終了点の座標を計算
-            const startX = centerX + radius * Math.cos(startAngleRad);
-            const startY = centerY + radius * Math.sin(startAngleRad);
-            const endX = centerX + radius * Math.cos(endAngleRad);
-            const endY = centerY + radius * Math.sin(endAngleRad);
+            // スライスのオフセットを取得（放射線方向にずらす）
+            const sliceOffset = (pieChart.sliceOffsets && pieChart.sliceOffsets[i]) || 0;
+            
+            // スライスの中心角度を計算（オフセット方向を決定するため）
+            const midAngleDeg = (startAngleDeg + endAngleDeg) / 2;
+            const midAngleRad = ((midAngleDeg - 90) * Math.PI) / 180;
+            
+            // オフセットを適用した中心座標を計算
+            const offsetCenterX = centerX + sliceOffset * Math.cos(midAngleRad);
+            const offsetCenterY = centerY + sliceOffset * Math.sin(midAngleRad);
+            
+            // 開始点と終了点の座標を計算（オフセット後の中心から）
+            const startX = offsetCenterX + radius * Math.cos(startAngleRad);
+            const startY = offsetCenterY + radius * Math.sin(startAngleRad);
+            const endX = offsetCenterX + radius * Math.cos(endAngleRad);
+            const endY = offsetCenterY + radius * Math.sin(endAngleRad);
             
             // 円弧の角度差を計算
             let angleDiff = endAngleDeg - startAngleDeg;
@@ -2389,11 +2400,11 @@ class ChartCanvas {
             const largeArcFlag = angleDiff > 180 ? 1 : 0;
             
             // SVGパスを生成
-            // M: 中心点に移動
+            // M: 中心点に移動（オフセット後の中心）
             // L: 開始点まで線を引く
             // A: 円弧を描く（半径、半径、回転、大きな円弧フラグ、時計回り、終了点）
             // Z: パスを閉じる（中心点に戻る）
-            const pathData = `M ${centerX} ${centerY} L ${startX} ${startY} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${endX} ${endY} Z`;
+            const pathData = `M ${offsetCenterX} ${offsetCenterY} L ${startX} ${startY} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${endX} ${endY} Z`;
             
             // パス要素を作成
             const path = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -2408,17 +2419,26 @@ class ChartCanvas {
         for (let i = 0; i < segmentAngles.length; i++) {
             const segment = segmentAngles[i];
             
+            // スライスのオフセットを取得（ラベルの位置計算に使用）
+            const sliceOffset = (pieChart.sliceOffsets && pieChart.sliceOffsets[i]) || 0;
+            
+            // スライスの中心角度を計算
+            let midAngleDeg = (segment.startAngle + segment.endAngle) / 2;
+            const angleOffset = pieChart.labelAngleOffsets[i] || 0;
+            midAngleDeg += angleOffset; // 角度オフセットを適用
+            const midAngleRad = ((midAngleDeg - 90) * Math.PI) / 180; // SVG座標系用に調整
+            
+            // オフセットを適用した中心座標を計算（ラベルの位置計算に使用）
+            const offsetCenterX = centerX + sliceOffset * Math.cos(midAngleRad);
+            const offsetCenterY = centerY + sliceOffset * Math.sin(midAngleRad);
+            
             // ラベルを描画
             const labelPosition = pieChart.determineLabelPosition(i);
             if (labelPosition === 'arc-center') {
-                // 外縁の円弧の中心にラベルを配置（角度オフセットを適用）
-                let midAngleDeg = (segment.startAngle + segment.endAngle) / 2;
-                const angleOffset = pieChart.labelAngleOffsets[i] || 0;
-                midAngleDeg += angleOffset; // 角度オフセットを適用
-                const midAngleRad = ((midAngleDeg - 90) * Math.PI) / 180; // SVG座標系用に調整
+                // 外縁の円弧の中心にラベルを配置
                 const labelRadius = radius + 20; // 円の外側に配置
-                const labelX = centerX + labelRadius * Math.cos(midAngleRad);
-                const labelY = centerY + labelRadius * Math.sin(midAngleRad);
+                const labelX = offsetCenterX + labelRadius * Math.cos(midAngleRad);
+                const labelY = offsetCenterY + labelRadius * Math.sin(midAngleRad);
                 
                 const labelText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
                 labelText.setAttribute('class', 'chart-text');
@@ -2430,18 +2450,14 @@ class ChartCanvas {
                 labelText.textContent = pieChart.getLabelText(i);
                 svg.appendChild(labelText);
             } else if (labelPosition === 'leader-line') {
-                // 引出線（リーダーライン）を出すタイプ（角度オフセットを適用）
-                let midAngleDeg = (segment.startAngle + segment.endAngle) / 2;
-                const angleOffset = pieChart.labelAngleOffsets[i] || 0;
-                midAngleDeg += angleOffset; // 角度オフセットを適用
-                const midAngleRad = ((midAngleDeg - 90) * Math.PI) / 180; // SVG座標系用に調整
+                // 引出線（リーダーライン）を出すタイプ
                 const labelRadius = radius + 30; // 円の外側に配置
-                const labelX = centerX + labelRadius * Math.cos(midAngleRad);
-                const labelY = centerY + labelRadius * Math.sin(midAngleRad);
+                const labelX = offsetCenterX + labelRadius * Math.cos(midAngleRad);
+                const labelY = offsetCenterY + labelRadius * Math.sin(midAngleRad);
                 
-                // 引出線を描画
-                const lineStartX = centerX + radius * Math.cos(midAngleRad);
-                const lineStartY = centerY + radius * Math.sin(midAngleRad);
+                // 引出線を描画（オフセット後の中心から）
+                const lineStartX = offsetCenterX + radius * Math.cos(midAngleRad);
+                const lineStartY = offsetCenterY + radius * Math.sin(midAngleRad);
                 const lineEndX = labelX;
                 const lineEndY = labelY;
                 

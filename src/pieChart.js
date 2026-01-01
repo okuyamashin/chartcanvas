@@ -41,6 +41,9 @@ class PieChart {
         
         // ラベルの角度オフセット（180度付近の衝突回避用）
         this.labelAngleOffsets = []; // 各セグメントのラベル角度オフセット（度）
+        
+        // 円弧の放射線方向オフセット（強調表示用）
+        this.sliceOffsets = []; // 各セグメントの放射線方向オフセット（ピクセル）
     }
 
     /**
@@ -94,6 +97,8 @@ class PieChart {
         
         // ラベルの角度オフセットをリセット
         this.labelAngleOffsets = new Array(this.data.length).fill(0);
+        // スライスのオフセットもリセット
+        this.sliceOffsets = new Array(this.data.length).fill(0);
         
         return this;
     }
@@ -187,6 +192,40 @@ class PieChart {
      */
     setSubtitle(subtitle) {
         this.subtitle = subtitle || '';
+        return this;
+    }
+
+    /**
+     * 特定の円弧を放射線方向にずらして強調表示する
+     * @param {number|Array<number>} indices - 強調するセグメントのインデックス（単一のインデックスまたは配列）
+     * @param {number} offset - ずらす距離（ピクセル、デフォルト: 10）
+     * @returns {PieChart} メソッドチェーン用にthisを返す
+     */
+    setSliceOffset(indices, offset = 10) {
+        // スライスオフセット配列を初期化（必要に応じて）
+        if (this.sliceOffsets.length !== this.data.length) {
+            this.sliceOffsets = new Array(this.data.length).fill(0);
+        }
+        
+        // インデックスを配列に変換
+        const indexArray = Array.isArray(indices) ? indices : [indices];
+        
+        // 各インデックスに対してオフセットを設定
+        indexArray.forEach(index => {
+            if (typeof index === 'number' && index >= 0 && index < this.data.length) {
+                this.sliceOffsets[index] = offset;
+            }
+        });
+        
+        return this;
+    }
+
+    /**
+     * すべての円弧のオフセットをリセット
+     * @returns {PieChart} メソッドチェーン用にthisを返す
+     */
+    resetSliceOffsets() {
+        this.sliceOffsets = new Array(this.data.length).fill(0);
         return this;
     }
 
