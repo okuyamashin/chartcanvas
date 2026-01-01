@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ヒストグラムサンプル（lazyLoadモードテスト）</title>
+    <script src="../../chartcanvas.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        #chart_div {
+            border: 1px solid #ccc;
+            margin: 20px 0;
+        }
+        #data_table_div {
+            margin: 20px 0;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .data-table th,
+        .data-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: right;
+        }
+        .data-table th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        .data-table tbody tr:hover {
+            background-color: #f5f5f5;
+        }
+        .data-table .stats-row {
+            background-color: #e8e8e8;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>ヒストグラムサンプル（lazyLoadモードテスト）</h1>
+    <p>10000件を超えるTSVファイルから生データを読み込んでヒストグラムを表示します（lazyLoadモード）。ヒストグラムの棒をクリックすると、そのビンに含まれるデータがテーブルに表示されます（クリック時に必要な範囲のデータのみを読み込みます）。</p>
+    
+    <div id="chart_div"></div>
+    <div id="data_table_div"></div>
+
+    <script>
+        // テーブル表示関数
+        function displayDataTable(dataArray, containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) {
+                console.error(`Container element not found: ${containerId}`);
+                return;
+            }
+            
+            if (!dataArray || dataArray.length === 0) {
+                container.innerHTML = '<p>データがありません。</p>';
+                return;
+            }
+            
+            // データがオブジェクトの配列か値の配列かを判定
+            const isObjectArray = dataArray.length > 0 && typeof dataArray[0] === 'object' && dataArray[0] !== null;
+            
+            // テーブルを生成
+            const table = document.createElement('table');
+            table.className = 'data-table';
+            
+            // ヘッダー行
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            
+            let headers = [];
+            if (isObjectArray) {
+                // オブジェクトの配列の場合、全キーをヘッダーとして使用
+                headers = Object.keys(dataArray[0]);
+            } else {
+                // 値の配列の場合、'値'のみをヘッダーとして使用
+                headers = ['値'];
+            }
+            
+            headers.forEach(header => {
+                const headerCell = document.createElement('th');
+                headerCell.textContent = header;
+                headerRow.appendChild(headerCell);
+            });
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+            
+            // データ行
+            const tbody = document.createElement('tbody');
+            let valueColumn = null; // 統計情報計算用の値列
+            
+            if (isObjectArray) {
+                // オブジェクトの配列の場合
+                dataArray.forEach(row => {
+                    const tr = document.createElement('tr');
+                    headers.forEach(header => {
+                        const cell = document.createElement('td');
+                        const value = row[header];
+                        // 数値の場合はフォーマット、文字列の場合はそのまま
+                        if (typeof value === 'number' && !isNaN(value)) {
+                            cell.textContent = value.toLocaleString();
+                            // 値列を特定（'値'という名前の列を優先、なければ最初の数値列）
+                            if (!valueColumn && (header === '値' || header.toLowerCase().includes('値'))) {
+                                valueColumn = header;
+                            }
+                        } else {
+                            cell.textContent = value || '';
+                        }
+                        tr.appendChild(cell);
+                    });
+                    tbody.appendChild(tr);
+                });
+                
+                // 値列が特定できなかった場合、最初の数値列を使用
+                if (!valueColumn && headers.length > 0) {
+                    for (const header of headers) {
+                        const firstValue = dataArray[0][header];
+                        if (typeof firstValue === 'number' && !isNaN(firstValue)) {
+                            valueColumn = header;
+                            break;
+                        }
+                    }
+                }
+            } else {
+                // 値の配列の場合（後方互換性）
+                dataArray.forEach(value => {
+                    const row = document.createElement('tr');
+                    const cell = document.createElement('td');
+                    cell.textContent = typeof value === 'number' ? value.toLocaleString() : value;
+                    row.appendChild(cell);
+                    tbody.appendChild(row);
+                });
+                valueColumn = '値';
+            }
+            
+            // 統計情報を追加（値列がある場合のみ）
+            if (valueColumn && isObjectArray) {
+                const statsRow = document.createElement('tr');
+                statsRow.className = 'stats-row';
+                const count = dataArray.length;
+                const values = dataArray.map(row => {
+                    const val = row[valueColumn];
+                    return typeof val === 'number' ? val : parseFloat(val) || 0;
+                });
+                const sum = values.reduce((a, b) => a + b, 0);
+                const avg = sum / count;
+                const statsCell = document.createElement('td');
+                statsCell.colSpan = headers.length;
+                statsCell.textContent = `件数: ${count}, 合計: ${sum.toLocaleString()}, 平均: ${avg.toLocaleString()}`;
+                statsRow.appendChild(statsCell);
+                tbody.appendChild(statsRow);
+            } else if (!isObjectArray) {
+                // 値の配列の場合
+                const statsRow = document.createElement('tr');
+                statsRow.className = 'stats-row';
+                const count = dataArray.length;
+                const sum = dataArray.reduce((a, b) => (typeof a === 'number' ? a : parseFloat(a) || 0) + (typeof b === 'number' ? b : parseFloat(b) || 0), 0);
+                const avg = sum / count;
+                const statsCell = document.createElement('td');
+                statsCell.colSpan = 1;
+                statsCell.textContent = `件数: ${count}, 合計: ${sum.toLocaleString()}, 平均: ${avg.toLocaleString()}`;
+                statsRow.appendChild(statsCell);
+                tbody.appendChild(statsRow);
+            }
+            
+            table.appendChild(tbody);
+            
+            // 既存のテーブルを削除して新しいテーブルを追加
+            container.innerHTML = '';
+            container.appendChild(table);
+        }
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            const chart_div = document.getElementById('chart_div');
+            const chart = new ChartCanvas(chart_div);
+            chart.size(2000, 600);
+            chart.title = '売上の分布（lazyLoadモード）';
+            chart.subtitle = '10000件の売上データ';
+
+            const histogram = chart.addHistogram();
+            histogram.xAxisTitle = '売上';
+            histogram.yAxisTitle = '頻度';
+            histogram.xAxisFormat = '#,##0';
+            histogram.yAxisFormat = '#,##0';
+            histogram.title = '売上の分布（lazyLoadモード）';
+            histogram.subtitle = '10000件の売上データ';
+            
+            // 平均値と中央値の線を表示
+            histogram.showMeanLine = true;
+            histogram.showMedianLine = true;
+            histogram.meanLineColor = 'red';
+            histogram.medianLineColor = 'blue';
+            histogram.meanLineStyle = 'dashed';
+            histogram.medianLineStyle = 'dashed';
+
+            // クリックイベントのコールバック関数を設定
+            histogram.onBinClick = function(dataArray, metadata) {
+                console.log('クリックされたビンのデータ:', dataArray);
+                console.log('ビンの範囲:', metadata.binRange);
+                displayDataTable(dataArray, 'data_table_div');
+            };
+
+            // TSVローダーを使用してデータを読み込む（大きいファイル）
+            const loader = histogram.tsvLoader('./data-histogram-large.tsv');
+            loader.valueTitle = '値';
+
+            try {
+                await loader.load();
+                chart.render();
+            } catch (error) {
+                console.error('TSVファイルの読み込みエラー:', error);
+                chart.render();
+            }
+        });
+    </script>
+</body>
+</html>
+
