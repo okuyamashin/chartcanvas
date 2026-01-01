@@ -4422,10 +4422,59 @@ class ChartCanvas {
             const pieChart = this.pieCharts[0];
             this.renderSinglePieChart(svg, pieChart);
         } else {
-            // 複数の円グラフを並べる場合（将来の拡張）
-            // 現在は単一の円グラフのみ対応
-            const pieChart = this.pieCharts[0];
-            this.renderSinglePieChart(svg, pieChart);
+            // 複数の円グラフを横並びに表示
+            this.renderMultiplePieCharts(svg);
+        }
+    }
+
+    /**
+     * 複数の円グラフを横並びに描画
+     * @param {SVGElement} svg - SVG要素
+     */
+    renderMultiplePieCharts(svg) {
+        const pieChartsCount = this.pieCharts.length;
+        const fontSize = ChartCanvas.FONT_SIZE_NORMAL;
+        
+        // すべての円グラフのラベルを収集して、色のマッピングを作成
+        const labelColorMap = this.createLabelColorMap();
+        
+        // 各円グラフに色を割り当て
+        for (const pieChart of this.pieCharts) {
+            this.assignColorsToPieChart(pieChart, labelColorMap);
+        }
+        
+        // 各円グラフのラベルを含めた実際の描画領域を計算
+        const margin = 40;
+        const labelSpacing = 20; // ラベルを含めた描画領域間のスペース
+        const titleHeight = fontSize + 5; // タイトルの高さ
+        
+        // まず、各円グラフのラベルを含めた実際の幅を計算
+        const chartBounds = [];
+        for (let i = 0; i < pieChartsCount; i++) {
+            const pieChart = this.pieCharts[i];
+            const bounds = this.calculatePieChartBounds(pieChart, fontSize, titleHeight);
+            chartBounds.push(bounds);
+        }
+        
+        // 全描画領域の合計幅を計算
+        const totalBoundsWidth = chartBounds.reduce((sum, bounds) => sum + bounds.width, 0);
+        const totalSpacing = labelSpacing * (pieChartsCount - 1);
+        const totalWidth = totalBoundsWidth + totalSpacing;
+        
+        // 中央に配置するための開始位置を計算
+        const startX = (this.width - totalWidth) / 2;
+        
+        // 各円グラフを描画
+        let currentX = startX;
+        for (let i = 0; i < pieChartsCount; i++) {
+            const pieChart = this.pieCharts[i];
+            const bounds = chartBounds[i];
+            const chartCenterX = currentX + bounds.width / 2;
+            
+            this.renderSinglePieChartAtPosition(svg, pieChart, chartCenterX, bounds.width, bounds.radius);
+            
+            // 次のグラフの位置を更新（ラベルを含めた幅 + スペース）
+            currentX += bounds.width + labelSpacing;
         }
     }
 
@@ -4523,6 +4572,378 @@ class ChartCanvas {
                 color = '#808080'; // グレー
             } else {
                 // それ以外はモノクロームを除く色を使用
+                color = pieChart.colors[i % pieChart.colors.length];
+            }
+            
+            // 開始点と終了点の座標を計算
+            const startX = centerX + radius * Math.cos(startAngleRad);
+            const startY = centerY + radius * Math.sin(startAngleRad);
+            const endX = centerX + radius * Math.cos(endAngleRad);
+            const endY = centerY + radius * Math.sin(endAngleRad);
+            
+            // 円弧の角度差を計算
+            let angleDiff = endAngleDeg - startAngleDeg;
+            if (angleDiff < 0) {
+                angleDiff += 360;
+            }
+            
+            // 大きな円弧かどうかを判定（180度を超える場合）
+            const largeArcFlag = angleDiff > 180 ? 1 : 0;
+            
+            // SVGパスを生成
+            // M: 中心点に移動
+            // L: 開始点まで線を引く
+            // A: 円弧を描く（半径、半径、回転、大きな円弧フラグ、時計回り、終了点）
+            // Z: パスを閉じる（中心点に戻る）
+            const pathData = `M ${centerX} ${centerY} L ${startX} ${startY} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${endX} ${endY} Z`;
+            
+            // パス要素を作成
+            const path = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', pathData);
+            path.setAttribute('fill', color);
+            path.setAttribute('stroke', '#fff');
+            path.setAttribute('stroke-width', '2');
+            svg.appendChild(path);
+        }
+        
+        // 次に、すべてのラベルを描画（円弧の上に表示されるように）
+        for (let i = 0; i < segmentAngles.length; i++) {
+            const segment = segmentAngles[i];
+            
+            // ラベルを描画
+            const labelPosition = pieChart.determineLabelPosition(i);
+            if (labelPosition === 'arc-center') {
+                // 外縁の円弧の中心にラベルを配置（角度オフセットを適用）
+                let midAngleDeg = (segment.startAngle + segment.endAngle) / 2;
+                const angleOffset = pieChart.labelAngleOffsets[i] || 0;
+                midAngleDeg += angleOffset; // 角度オフセットを適用
+                const midAngleRad = ((midAngleDeg - 90) * Math.PI) / 180; // SVG座標系用に調整
+                const labelRadius = radius + 20; // 円の外側に配置
+                const labelX = centerX + labelRadius * Math.cos(midAngleRad);
+                const labelY = centerY + labelRadius * Math.sin(midAngleRad);
+                
+                const labelText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
+                labelText.setAttribute('class', 'chart-text');
+                labelText.setAttribute('x', labelX);
+                labelText.setAttribute('y', labelY);
+                labelText.setAttribute('text-anchor', 'middle');
+                labelText.setAttribute('dominant-baseline', 'middle');
+                labelText.setAttribute('style', `font-size: ${fontSize}px;`);
+                labelText.textContent = pieChart.getLabelText(i);
+                svg.appendChild(labelText);
+            } else if (labelPosition === 'leader-line') {
+                // 引出線（リーダーライン）を出すタイプ（角度オフセットを適用）
+                let midAngleDeg = (segment.startAngle + segment.endAngle) / 2;
+                const angleOffset = pieChart.labelAngleOffsets[i] || 0;
+                midAngleDeg += angleOffset; // 角度オフセットを適用
+                const midAngleRad = ((midAngleDeg - 90) * Math.PI) / 180; // SVG座標系用に調整
+                const labelRadius = radius + 30; // 円の外側に配置
+                const labelX = centerX + labelRadius * Math.cos(midAngleRad);
+                const labelY = centerY + labelRadius * Math.sin(midAngleRad);
+                
+                // 引出線を描画
+                const lineStartX = centerX + radius * Math.cos(midAngleRad);
+                const lineStartY = centerY + radius * Math.sin(midAngleRad);
+                const lineEndX = labelX;
+                const lineEndY = labelY;
+                
+                const line = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', lineStartX);
+                line.setAttribute('y1', lineStartY);
+                line.setAttribute('x2', lineEndX);
+                line.setAttribute('y2', lineEndY);
+                line.setAttribute('stroke', '#333');
+                line.setAttribute('stroke-width', '1');
+                svg.appendChild(line);
+                
+                // ラベルを描画
+                const labelText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
+                labelText.setAttribute('class', 'chart-text');
+                labelText.setAttribute('x', labelX);
+                labelText.setAttribute('y', labelY);
+                labelText.setAttribute('text-anchor', 'middle');
+                labelText.setAttribute('dominant-baseline', 'middle');
+                labelText.setAttribute('style', `font-size: ${fontSize}px;`);
+                labelText.textContent = pieChart.getLabelText(i);
+                svg.appendChild(labelText);
+            }
+        }
+        
+        // 凡例は描画しない（ラベルで情報を表示するため）
+    }
+
+    /**
+     * 円グラフのラベルを含めた描画領域の幅を計算
+     * @param {PieChart} pieChart - PieChartインスタンス
+     * @param {number} fontSize - フォントサイズ
+     * @param {number} titleHeight - タイトルの高さ
+     * @returns {Object} 描画領域の情報 {width, height, centerX, centerY, radius}
+     */
+    calculatePieChartBounds(pieChart, fontSize, titleHeight) {
+        if (!pieChart.data || pieChart.data.length === 0) {
+            return { width: 0, height: 0, centerX: 0, centerY: 0, radius: 0 };
+        }
+        
+        const margin = 40;
+        const availableHeight = this.height - titleHeight - margin * 2;
+        
+        // 仮の中心位置でラベルの位置を計算（幅を計算するため）
+        // 中心を0として計算し、後でオフセットを追加
+        const tempCenterX = 0;
+        const tempCenterY = titleHeight + margin + (availableHeight / 2);
+        
+        // ラベルの表示方法に応じて円グラフのサイズを調整
+        const labelPadding = 80; // ラベルのための余白
+        // 仮の幅を大きめに設定して、ラベルの範囲を正確に計算
+        const tempAvailableWidth = 1000; // 仮の幅（後で調整）
+        const tempMaxRadius = Math.min(tempAvailableWidth / 2 - labelPadding, availableHeight / 2 - labelPadding);
+        const tempRadius = Math.max(50, tempMaxRadius);
+        
+        // すべてのラベルの位置を計算して、最も左と右の位置を取得
+        let minX = Infinity;
+        let maxX = -Infinity;
+        let minY = Infinity;
+        let maxY = -Infinity;
+        
+        const segmentAngles = pieChart.getSegmentAngles();
+        for (let i = 0; i < segmentAngles.length; i++) {
+            const segment = segmentAngles[i];
+            const labelPosition = pieChart.determineLabelPosition(i);
+            
+            let midAngleDeg = (segment.startAngle + segment.endAngle) / 2;
+            const angleOffset = pieChart.labelAngleOffsets[i] || 0;
+            midAngleDeg += angleOffset;
+            const midAngleRad = ((midAngleDeg - 90) * Math.PI) / 180;
+            
+            const labelRadius = labelPosition === 'arc-center' ? tempRadius + 20 : tempRadius + 30;
+            const labelX = tempCenterX + labelRadius * Math.cos(midAngleRad);
+            const labelY = tempCenterY + labelRadius * Math.sin(midAngleRad);
+            
+            const labelText = pieChart.getLabelText(i);
+            const labelWidth = this.getTextWidth(labelText, fontSize);
+            const labelHeight = fontSize * 1.2;
+            
+            // ラベルのバウンディングボックスを計算
+            const labelLeft = labelX - labelWidth / 2;
+            const labelRight = labelX + labelWidth / 2;
+            const labelTop = labelY - labelHeight / 2;
+            const labelBottom = labelY + labelHeight / 2;
+            
+            minX = Math.min(minX, labelLeft);
+            maxX = Math.max(maxX, labelRight);
+            minY = Math.min(minY, labelTop);
+            maxY = Math.max(maxY, labelBottom);
+        }
+        
+        // 円グラフ自体の範囲も考慮
+        const circleLeft = tempCenterX - tempRadius;
+        const circleRight = tempCenterX + tempRadius;
+        const circleTop = tempCenterY - tempRadius;
+        const circleBottom = tempCenterY + tempRadius;
+        
+        minX = Math.min(minX, circleLeft);
+        maxX = Math.max(maxX, circleRight);
+        minY = Math.min(minY, circleTop);
+        maxY = Math.max(maxY, circleBottom);
+        
+        // マージンを追加
+        const padding = 20;
+        const width = (maxX - minX) + padding * 2;
+        const height = (maxY - minY) + padding * 2;
+        
+        // 半径は、利用可能な高さから計算した最大半径を使う
+        // ラベルを含めた幅から計算すると小さくなりすぎるため
+        // 高さは固定なので、そこから最大半径を計算
+        const actualMaxRadius = availableHeight / 2 - labelPadding;
+        const actualRadius = Math.max(50, actualMaxRadius);
+        
+        return {
+            width: width,
+            height: height,
+            centerX: (minX + maxX) / 2,
+            centerY: (minY + maxY) / 2,
+            radius: actualRadius,
+            minX: minX,
+            maxX: maxX,
+            minY: minY,
+            maxY: maxY
+        };
+    }
+
+    /**
+     * すべての円グラフのラベルを収集して、色のマッピングを作成
+     * @returns {Map<string, string>} ラベル名から色へのマッピング
+     */
+    createLabelColorMap() {
+        const labelColorMap = new Map();
+        const allLabels = new Set();
+        
+        // すべての円グラフのラベルを収集
+        for (const pieChart of this.pieCharts) {
+            if (pieChart.labels) {
+                for (const label of pieChart.labels) {
+                    allLabels.add(label);
+                }
+            }
+        }
+        
+        // ラベルをソートして、順番に色を割り当て
+        const sortedLabels = Array.from(allLabels).sort();
+        const defaultColors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#FF6384', '#FF6B9D', '#C44569', '#F8B500', '#00D2FF', '#5E60CE'];
+        
+        for (let i = 0; i < sortedLabels.length; i++) {
+            const label = sortedLabels[i];
+            const color = defaultColors[i % defaultColors.length];
+            labelColorMap.set(label, color);
+        }
+        
+        return labelColorMap;
+    }
+
+    /**
+     * 円グラフに色を割り当て
+     * @param {PieChart} pieChart - PieChartインスタンス
+     * @param {Map<string, string>} labelColorMap - ラベル名から色へのマッピング
+     */
+    assignColorsToPieChart(pieChart, labelColorMap) {
+        if (!pieChart.labels) {
+            return;
+        }
+        
+        // 各ラベルに対応する色を設定
+        pieChart.assignedColors = [];
+        for (const label of pieChart.labels) {
+            const color = labelColorMap.get(label) || '#808080'; // デフォルトはグレー
+            pieChart.assignedColors.push(color);
+        }
+    }
+
+    /**
+     * 指定された位置に単一の円グラフを描画
+     * @param {SVGElement} svg - SVG要素
+     * @param {PieChart} pieChart - PieChartインスタンス
+     * @param {number} centerX - 円グラフの中心X座標
+     * @param {number} chartWidth - 円グラフの描画領域の幅
+     * @param {number} radius - 円グラフの半径（オプション、指定されない場合は計算）
+     */
+    renderSinglePieChartAtPosition(svg, pieChart, centerX, chartWidth, radius = null) {
+        if (!pieChart.data || pieChart.data.length === 0) {
+            return;
+        }
+
+        const fontSize = ChartCanvas.FONT_SIZE_NORMAL;
+        const metrics = this.measureFontMetrics(fontSize);
+        
+        // タイトルとサブタイトルの高さを計算
+        let titleHeight = 0;
+        if (pieChart.title) {
+            titleHeight += fontSize + 5;
+        }
+        if (pieChart.subtitle) {
+            titleHeight += fontSize + 5;
+        }
+        
+        // 円グラフの描画領域を計算
+        const margin = 40;
+        const availableHeight = this.height - titleHeight - margin * 2;
+        
+        // 半径が指定されていない場合は計算
+        if (radius === null) {
+            const availableWidth = chartWidth - margin * 2;
+            // ラベルの表示方法に応じて円グラフのサイズを調整
+            const labelPadding = 80; // ラベルのための余白
+            const maxRadius = Math.min(availableWidth / 2 - labelPadding, availableHeight / 2 - labelPadding);
+            radius = Math.max(50, maxRadius); // 最小半径50px
+        }
+        
+        // 円グラフの中心座標
+        const centerY = titleHeight + margin + (availableHeight / 2);
+        
+        // タイトルを描画
+        if (pieChart.title) {
+            const titleText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
+            titleText.setAttribute('class', 'chart-text');
+            titleText.setAttribute('x', centerX);
+            titleText.setAttribute('y', fontSize + 5);
+            titleText.setAttribute('text-anchor', 'middle');
+            titleText.setAttribute('style', `font-size: ${fontSize}px; font-weight: bold;`);
+            titleText.textContent = pieChart.title;
+            svg.appendChild(titleText);
+        }
+        
+        // サブタイトルを描画
+        if (pieChart.subtitle) {
+            const subtitleText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
+            subtitleText.setAttribute('class', 'chart-text');
+            subtitleText.setAttribute('x', centerX);
+            subtitleText.setAttribute('y', fontSize * 2 + 10);
+            subtitleText.setAttribute('text-anchor', 'middle');
+            subtitleText.setAttribute('style', `font-size: ${fontSize}px;`);
+            subtitleText.textContent = pieChart.subtitle;
+            svg.appendChild(subtitleText);
+        }
+        
+        // 350度付近のラベル衝突を解決（小さいカテゴリを「その他」にまとめる）
+        const collisionResult = pieChart.resolve350DegreeCollisions(
+            centerX,
+            centerY,
+            radius,
+            fontSize,
+            this.getTextWidth.bind(this),
+            10,  // 最大繰り返し回数
+            'その他',  // 「その他」のラベル
+            20   // 350度付近の角度範囲（20度）
+        );
+        
+        if (collisionResult.iterations > 0) {
+            console.log(`350度付近の衝突を解決: ${collisionResult.iterations}回の繰り返しで${collisionResult.success ? '成功' : '部分的な解決'}`);
+        }
+        
+        // 180度付近（真南）のラベル衝突を解決（右側のラベルを右にずらす）
+        const collision180Result = pieChart.resolve180DegreeCollisions(
+            centerX,
+            centerY,
+            radius,
+            fontSize,
+            this.getTextWidth.bind(this),
+            20,  // 最大繰り返し回数
+            30,  // 180度付近の角度範囲（30度）
+            2    // 1回の調整でずらす角度（2度）
+        );
+        
+        if (collision180Result.iterations > 0) {
+            console.log(`180度付近の衝突を解決: ${collision180Result.iterations}回の繰り返しで${collision180Result.success ? '成功' : '部分的な解決'}`);
+        }
+        
+        // セグメントの角度を再計算（衝突解決後のデータで）
+        const segmentAngles = pieChart.getSegmentAngles();
+        
+        // まず、すべての円弧を描画
+        for (let i = 0; i < segmentAngles.length; i++) {
+            const segment = segmentAngles[i];
+            
+            // SVGの座標系ではY軸が下向きなので、角度を調整
+            // 真北（0度）から時計回りに開始するため、-90度オフセットを適用
+            const startAngleDeg = segment.startAngle;
+            const endAngleDeg = segment.endAngle;
+            
+            // 度をラジアンに変換（SVG座標系用に調整：真北を0度として時計回り）
+            const startAngleRad = ((startAngleDeg - 90) * Math.PI) / 180;
+            const endAngleRad = ((endAngleDeg - 90) * Math.PI) / 180;
+            
+            // 色を取得（割り当てられた色を使用）
+            let color;
+            const label = pieChart.labels[i];
+            const isOthers = label === 'その他' || label === 'Others';
+            
+            if (isOthers) {
+                // 「その他」カテゴリはグレー
+                color = '#808080'; // グレー
+            } else if (pieChart.assignedColors && pieChart.assignedColors[i]) {
+                // 割り当てられた色を使用
+                color = pieChart.assignedColors[i];
+            } else {
+                // フォールバック: デフォルトの色を使用
                 color = pieChart.colors[i % pieChart.colors.length];
             }
             

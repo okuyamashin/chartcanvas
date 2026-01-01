@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>円グラフサンプル（2つの円グラフを横並び）</title>
+    <script src="../../chartcanvas.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        #chart_div {
+            border: 1px solid #ccc;
+            margin: 20px 0;
+        }
+        .info {
+            margin: 20px 0;
+            padding: 10px;
+            background-color: #e7f3ff;
+            border-left: 4px solid #2196F3;
+        }
+    </style>
+</head>
+<body>
+    <h1>円グラフサンプル（2つの円グラフを横並び）</h1>
+    <p>TSVファイルからデータを読み込んで、2つの円グラフ（「値」と「数量」）を横並びに表示します。同じ商品名には同じ色が割り当てられます。</p>
+    
+    <div class="info">
+        <strong>機能:</strong><br>
+        - 2つの円グラフを横並びに表示<br>
+        - 各グラフにタイトルを表示（「値」と「数量」）<br>
+        - 同じ商品名には同じ色を割り当て（例: 商品Aは両方のグラフで同じ色）<br>
+        - ラベルの表示形式と配置方法は同じ
+    </div>
+    
+    <div id="chart_div"></div>
+
+    <script>
+        let chart = null;
+        let pieChart1 = null;
+        let pieChart2 = null;
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            await initializeChart();
+        });
+
+        async function initializeChart() {
+            const chart_div = document.getElementById('chart_div');
+            chart = new ChartCanvas(chart_div);
+            chart.size(1600, 600); // 横長のサイズ
+
+            // 1つ目の円グラフ（値）
+            pieChart1 = chart.addPieChart();
+            pieChart1.setTitle('値');
+
+            // 2つ目の円グラフ（数量）
+            pieChart2 = chart.addPieChart();
+            pieChart2.setTitle('数量');
+
+            // TSVファイルを読み込む
+            const response = await fetch('./data-pie-large.tsv');
+            if (!response.ok) {
+                console.error('TSVファイルの読み込みに失敗しました');
+                return;
+            }
+            
+            const text = await response.text();
+            const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+            
+            if (lines.length === 0) {
+                console.error('TSVファイルが空です');
+                return;
+            }
+
+            // ヘッダー行を解析
+            const headers = lines[0].split('\t');
+            const categoryIndex = headers.indexOf('カテゴリ名');
+            const valueIndex = headers.indexOf('値');
+            const quantityIndex = headers.indexOf('数量');
+            
+            if (categoryIndex === -1 || valueIndex === -1 || quantityIndex === -1) {
+                console.error('必要な列が見つかりません');
+                return;
+            }
+
+            // データを読み込む
+            const valueData = [];
+            const valueLabels = [];
+            const quantityData = [];
+            const quantityLabels = [];
+            
+            for (let i = 1; i < lines.length; i++) {
+                const columns = lines[i].split('\t');
+                if (columns.length <= Math.max(categoryIndex, valueIndex, quantityIndex)) {
+                    continue;
+                }
+                
+                const category = columns[categoryIndex]?.trim() || '';
+                const valueStr = columns[valueIndex].trim();
+                const quantityStr = columns[quantityIndex].trim();
+                const value = parseFloat(valueStr);
+                const quantity = parseFloat(quantityStr);
+                
+                if (!isNaN(value) && value >= 0 && category) {
+                    valueData.push(value);
+                    valueLabels.push(category);
+                }
+                
+                if (!isNaN(quantity) && quantity >= 0 && category) {
+                    quantityData.push(quantity);
+                    quantityLabels.push(category);
+                }
+            }
+            
+            // データを設定
+            pieChart1.setData(valueData, valueLabels);
+            pieChart2.setData(quantityData, quantityLabels);
+            
+            // グラフを描画
+            chart.render();
+        }
+    </script>
+</body>
+</html>
+
