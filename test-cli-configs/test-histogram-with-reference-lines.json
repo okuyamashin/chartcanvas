@@ -1,0 +1,29 @@
+{
+  "chart": {
+    "width": 1024,
+    "height": 600,
+    "title": "売上の分布（平均線・中央値線付き）"
+  },
+  "chartType": "histogram",
+  "histogram": {
+    "xAxisTitle": "売上",
+    "yAxisTitle": "頻度",
+    "xAxisFormat": "#,##0",
+    "yAxisFormat": "#,##0",
+    "curveMode": false,
+    "xGrid": false,
+    "yGrid": false,
+    "showMeanLine": true,
+    "showMedianLine": true,
+    "meanLineColor": "red",
+    "medianLineColor": "blue",
+    "meanLineStyle": "dashed",
+    "medianLineStyle": "dashed",
+    "meanLineWidth": 2,
+    "medianLineWidth": 2
+  },
+  "tsv": {
+    "valueTitle": "値"
+  }
+}
+

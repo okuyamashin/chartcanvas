@@ -29,7 +29,7 @@
 const fs = require('fs');
 const path = require('path');
 const { Readable } = require('stream');
-const puppeteer = require('puppeteer');
+const vm = require('vm');
 
 // バージョン情報
 const VERSION = require('./package.json').version;
@@ -250,13 +250,12 @@ function parseTSV(tsvData) {
 }
 
 /**
- * Puppeteerを使ってChartCanvasを実行し、SVGを生成する
+ * Node.jsの標準機能を使ってChartCanvasを実行し、SVGを生成する
  * @param {Object} config - 設定オブジェクト
  * @param {string} tsvData - TSVデータの文字列
  * @returns {Promise<string>} SVG文字列
  */
 async function generateSVG(config, tsvData) {
-    let browser = null;
     try {
         // TSVデータをパース
         const parsedTSV = parseTSV(tsvData);
@@ -264,352 +263,327 @@ async function generateSVG(config, tsvData) {
         // ChartCanvasのコードを読み込む
         const chartCanvasCode = fs.readFileSync(CHART_CANVAS_PATH, 'utf-8');
 
-        // Puppeteerでブラウザを起動
-        browser = await puppeteer.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
-        });
+        // VMコンテキストを作成（グローバルオブジェクトを模擬）
+        const sandbox = {
+            console: console,
+            setTimeout: setTimeout,
+            clearTimeout: clearTimeout,
+            setInterval: setInterval,
+            clearInterval: clearInterval,
+            Buffer: Buffer,
+            process: process,
+            global: {},
+            window: {},
+            document: null, // DOMなしモード
+            XMLSerializer: null // XMLSerializerなし
+        };
 
-        const page = await browser.newPage();
+        // ChartCanvasのコードを実行
+        vm.createContext(sandbox);
+        vm.runInContext(chartCanvasCode, sandbox);
 
-        // HTMLページを作成してChartCanvasを実行
-        const html = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <script>${chartCanvasCode}</script>
-</head>
-<body>
-    <div id="chart_div"></div>
-    <script>
-        (async () => {
-            try {
-                // ChartCanvasを作成（DOM要素なしでも動作するようにnullを許可）
-                const chart = new ChartCanvas(null);
-                
-                // 設定とTSVデータを取得
-                const config = ${JSON.stringify(config)};
-                const parsedTSV = ${JSON.stringify(parsedTSV)};
-                
-                // グラフのサイズを設定
-                const width = config.chart?.width || 1024;
-                const height = config.chart?.height || 600;
-                chart.size(width, height);
-                
-                if (config.chart?.title) {
-                    chart.title = config.chart.title;
-                }
-                if (config.chart?.subtitle) {
-                    chart.subtitle = config.chart.subtitle;
-                }
-                
-                // チャートタイプに応じて処理
-                if (config.chartType === 'dateChart') {
-                    // dateChartタイプの実装
-                    const dateChart = chart.addDateChart();
+        // ChartCanvasを作成（DOMなしモード）
+        // ChartCanvasはwindowオブジェクトに公開されている
+        const ChartCanvas = sandbox.window.ChartCanvas || sandbox.ChartCanvas;
+        const chart = new ChartCanvas(null);
+        
+        // グラフのサイズを設定
+        const width = config.chart?.width || 1024;
+        const height = config.chart?.height || 600;
+        chart.size(width, height);
+        
+        if (config.chart?.title) {
+            chart.title = config.chart.title;
+        }
+        if (config.chart?.subtitle) {
+            chart.subtitle = config.chart.subtitle;
+        }
+        
+        // チャートタイプに応じて処理
+        if (config.chartType === 'dateChart') {
+            // dateChartタイプの実装
+            const dateChart = chart.addDateChart();
                     
-                    // dateChartの設定を適用
-                    if (config.dateChart) {
-                        if (config.dateChart.xAxisTitle) dateChart.xAxisTitle = config.dateChart.xAxisTitle;
-                        if (config.dateChart.yAxisTitle) dateChart.yAxisTitle = config.dateChart.yAxisTitle;
-                        if (config.dateChart.yAxisScale) dateChart.yAxisScale = config.dateChart.yAxisScale;
-                        if (config.dateChart.yAxisFormat) dateChart.yAxisFormat = config.dateChart.yAxisFormat;
-                        if (config.dateChart.secondAxis !== undefined) dateChart.secondAxis = config.dateChart.secondAxis;
-                        if (config.dateChart.secondAxisTitle) dateChart.secondAxisTitle = config.dateChart.secondAxisTitle;
-                        if (config.dateChart.secondAxisScale) dateChart.secondAxisScale = config.dateChart.secondAxisScale;
-                        if (config.dateChart.secondAxisFormat) dateChart.secondAxisFormat = config.dateChart.secondAxisFormat;
-                        if (config.dateChart.dateFormat) dateChart.dateFormat = config.dateChart.dateFormat;
-                        if (config.dateChart.xGrid !== undefined) dateChart.xGrid = config.dateChart.xGrid;
-                        if (config.dateChart.yGrid !== undefined) dateChart.yGrid = config.dateChart.yGrid;
-                    }
-                    
-                    // 系列を作成
-                    const seriesMap = new Map();
-                    for (const seriesConfig of config.tsv.series) {
-                        let series;
-                        if (seriesConfig.type === 'line') {
-                            series = dateChart.addLine({
-                                title: seriesConfig.title,
-                                color: seriesConfig.color || 'black',
-                                lineWidth: seriesConfig.lineWidth || 2,
-                                lineType: seriesConfig.lineType || 'solid',
-                                secondAxis: seriesConfig.secondAxis || false,
-                                showMarkers: seriesConfig.showMarkers || false
-                            });
-                        } else if (seriesConfig.type === 'bar') {
-                            series = dateChart.addBar({
-                                title: seriesConfig.title,
-                                color: seriesConfig.color || 'blue',
-                                secondAxis: seriesConfig.secondAxis || false
-                            });
-                        } else {
-                            throw new Error('Error: Invalid series type: ' + seriesConfig.type);
-                        }
-                        seriesMap.set(seriesConfig.column, series);
-                    }
-                    
-                    // TSVデータを系列に追加
-                    const dateTitle = config.tsv.dateTitle;
-                    const commentTitle = config.tsv.commentTitle || '';
-                    
-                    for (const row of parsedTSV.rows) {
-                        const date = row[dateTitle];
-                        if (!date) continue;
-                        
-                        // 日付を正規化
-                        const dateFormat = config.dateChart?.dateFormat || 'auto';
-                        let normalizedDate = date;
-                        if (date.match(/^\\d{4}-\\d{2}-\\d{2}$/)) {
-                            normalizedDate = date.replace(/-/g, '');
-                        } else if (date.match(/^\\d{4}\\/\\d{2}\\/\\d{2}$/)) {
-                            normalizedDate = date.replace(/\\//g, '');
-                        }
-                        
-                        // 各系列にデータを追加
-                        for (const [column, series] of seriesMap.entries()) {
-                            const valueStr = row[column];
-                            if (!valueStr) continue;
-                            
-                            const value = parseFloat(valueStr);
-                            if (isNaN(value)) continue;
-                            
-                            const comment = commentTitle ? (row[commentTitle] || '') : '';
-                            series.addData(normalizedDate, value, comment);
-                        }
-                    }
-                    
-                    // レンダリング
-                    chart.render();
-                    
-                } else if (config.chartType === 'groupDateChart') {
-                    // groupDateChartタイプの実装
-                    const dateChart = chart.addDateChart();
-                    
-                    // dateChartの設定を適用
-                    if (config.dateChart) {
-                        if (config.dateChart.xAxisTitle) dateChart.xAxisTitle = config.dateChart.xAxisTitle;
-                        if (config.dateChart.yAxisTitle) dateChart.yAxisTitle = config.dateChart.yAxisTitle;
-                        if (config.dateChart.yAxisScale) dateChart.yAxisScale = config.dateChart.yAxisScale;
-                        if (config.dateChart.yAxisFormat) dateChart.yAxisFormat = config.dateChart.yAxisFormat;
-                        if (config.dateChart.dateFormat) dateChart.dateFormat = config.dateChart.dateFormat;
-                        if (config.dateChart.xGrid !== undefined) dateChart.xGrid = config.dateChart.xGrid;
-                        if (config.dateChart.yGrid !== undefined) dateChart.yGrid = config.dateChart.yGrid;
-                    }
-                    
-                    // グループごとのデータを収集
-                    const dateTitle = config.tsv.dateTitle;
-                    const valueTitle = config.tsv.valueTitle;
-                    const groupTitle = config.tsv.groupTitle;
-                    const commentTitle = config.tsv.commentTitle || '';
-                    const seriesType = config.tsv.seriesType || 'line';
-                    const seriesOptions = config.tsv.seriesOptions || {};
-                    const seriesColors = config.tsv.seriesColors || ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray'];
-                    
-                    const dataByGroup = new Map();
-                    
-                    for (const row of parsedTSV.rows) {
-                        const date = row[dateTitle];
-                        const groupName = row[groupTitle];
-                        const valueStr = row[valueTitle];
-                        
-                        if (!date || !groupName || !valueStr) continue;
-                        
-                        const value = parseFloat(valueStr);
-                        if (isNaN(value)) continue;
-                        
-                        // 日付を正規化
-                        const dateFormat = config.dateChart?.dateFormat || 'auto';
-                        let normalizedDate = date;
-                        if (date.match(/^\\d{4}-\\d{2}-\\d{2}$/)) {
-                            normalizedDate = date.replace(/-/g, '');
-                        } else if (date.match(/^\\d{4}\\/\\d{2}\\/\\d{2}$/)) {
-                            normalizedDate = date.replace(/\\//g, '');
-                        }
-                        
-                        // normalizeDate関数を使用（ChartCanvasの関数）
-                        normalizedDate = normalizeDate(normalizedDate, dateFormat);
-                        
-                        const comment = commentTitle ? (row[commentTitle] || '') : '';
-                        
-                        if (!dataByGroup.has(groupName)) {
-                            dataByGroup.set(groupName, []);
-                        }
-                        dataByGroup.get(groupName).push({
-                            date: normalizedDate,
-                            value: value,
-                            comment: comment
-                        });
-                    }
-                    
-                    // グループごとに系列を作成
-                    const sortedGroupNames = Array.from(dataByGroup.keys()).sort();
-                    let colorIndex = 0;
-                    
-                    for (const groupName of sortedGroupNames) {
-                        const data = dataByGroup.get(groupName);
-                        
-                        // 系列を作成
-                        const seriesConfig = {
-                            title: groupName,
-                            color: seriesColors[colorIndex % seriesColors.length],
-                            ...seriesOptions
-                        };
-                        
-                        let series;
-                        if (seriesType === 'line') {
-                            series = dateChart.addLine(seriesConfig);
-                        } else if (seriesType === 'bar') {
-                            series = dateChart.addBar(seriesConfig);
-                        } else {
-                            throw new Error('Error: Invalid seriesType: ' + seriesType);
-                        }
-                        
-                        // データを日付でソート
-                        data.sort((a, b) => a.date.localeCompare(b.date));
-                        
-                        // データを追加
-                        for (const item of data) {
-                            series.addData(item.date, item.value, item.comment);
-                        }
-                        
-                        colorIndex++;
-                    }
-                    
-                    // レンダリング
-                    chart.render();
-                    
-                } else if (config.chartType === 'histogram') {
-                    // histogramタイプの実装
-                    const histogram = chart.addHistogram();
-                    
-                    // histogramの設定を適用
-                    if (config.histogram) {
-                        if (config.histogram.xAxisTitle) histogram.xAxisTitle = config.histogram.xAxisTitle;
-                        if (config.histogram.yAxisTitle) histogram.yAxisTitle = config.histogram.yAxisTitle;
-                        if (config.histogram.xAxisFormat) histogram.xAxisFormat = config.histogram.xAxisFormat;
-                        if (config.histogram.yAxisFormat) histogram.yAxisFormat = config.histogram.yAxisFormat;
-                        if (config.histogram.binCount !== undefined && config.histogram.binCount !== null) histogram.binCount = config.histogram.binCount;
-                        if (config.histogram.binWidth !== undefined && config.histogram.binWidth !== null) histogram.binWidth = config.histogram.binWidth;
-                        if (config.histogram.binAlignment) histogram.binAlignment = config.histogram.binAlignment;
-                        if (config.histogram.curveMode !== undefined) histogram.curveMode = config.histogram.curveMode;
-                        if (config.histogram.xGrid !== undefined) histogram.xGrid = config.histogram.xGrid;
-                        if (config.histogram.yGrid !== undefined) histogram.yGrid = config.histogram.yGrid;
-                    }
-                    
-                    const valueTitle = config.tsv.valueTitle;
-                    const groupTitle = config.tsv.groupTitle;
-                    const seriesColors = config.tsv.seriesColors || ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray'];
-                    
-                    if (groupTitle) {
-                        // グループ別ヒストグラム
-                        const dataByGroup = new Map();
-                        
-                        for (const row of parsedTSV.rows) {
-                            const groupName = row[groupTitle];
-                            const valueStr = row[valueTitle];
-                            
-                            if (!groupName || !valueStr) continue;
-                            
-                            const value = parseFloat(valueStr);
-                            if (isNaN(value)) continue;
-                            
-                            if (!dataByGroup.has(groupName)) {
-                                dataByGroup.set(groupName, []);
-                            }
-                            dataByGroup.get(groupName).push(value);
-                        }
-                        
-                        // グループごとに系列を作成
-                        const sortedGroupNames = Array.from(dataByGroup.keys()).sort();
-                        let colorIndex = 0;
-                        
-                        for (const groupName of sortedGroupNames) {
-                            const values = dataByGroup.get(groupName);
-                            
-                            const series = histogram.addSeries({
-                                title: groupName,
-                                color: seriesColors[colorIndex % seriesColors.length],
-                                opacity: 0.7
-                            });
-                            
-                            for (const value of values) {
-                                series.addData(value);
-                            }
-                            
-                            colorIndex++;
-                        }
-                    } else {
-                        // 単一のヒストグラム系列
-                        const values = [];
-                        
-                        for (const row of parsedTSV.rows) {
-                            const valueStr = row[valueTitle];
-                            if (!valueStr) continue;
-                            
-                            const value = parseFloat(valueStr);
-                            if (isNaN(value)) continue;
-                            
-                            values.push(value);
-                        }
-                        
-                        const series = histogram.addSeries({
-                            title: config.chart?.title || 'データ',
-                            color: seriesColors[0],
-                            opacity: 0.7
-                        });
-                        
-                        for (const value of values) {
-                            series.addData(value);
-                        }
-                    }
-                    
-                    // レンダリング
-                    chart.render();
-                    
-                } else {
-                    // 他のチャートタイプは未実装
-                    throw new Error('Error: Chart type not yet implemented: ' + config.chartType);
-                }
-                
-                // SVG文字列を取得
-                const svgString = chart.getSVGString();
-                
-                // 結果をwindowオブジェクトに保存
-                window.cliResult = {
-                    success: true,
-                    svgString: svgString
-                };
-                
-            } catch (error) {
-                window.cliResult = {
-                    success: false,
-                    error: error.message,
-                    stack: error.stack
-                };
+            // dateChartの設定を適用
+            if (config.dateChart) {
+                if (config.dateChart.xAxisTitle) dateChart.xAxisTitle = config.dateChart.xAxisTitle;
+                if (config.dateChart.yAxisTitle) dateChart.yAxisTitle = config.dateChart.yAxisTitle;
+                if (config.dateChart.yAxisScale) dateChart.yAxisScale = config.dateChart.yAxisScale;
+                if (config.dateChart.yAxisFormat) dateChart.yAxisFormat = config.dateChart.yAxisFormat;
+                if (config.dateChart.secondAxis !== undefined) dateChart.secondAxis = config.dateChart.secondAxis;
+                if (config.dateChart.secondAxisTitle) dateChart.secondAxisTitle = config.dateChart.secondAxisTitle;
+                if (config.dateChart.secondAxisScale) dateChart.secondAxisScale = config.dateChart.secondAxisScale;
+                if (config.dateChart.secondAxisFormat) dateChart.secondAxisFormat = config.dateChart.secondAxisFormat;
+                if (config.dateChart.dateFormat) dateChart.dateFormat = config.dateChart.dateFormat;
+                if (config.dateChart.xGrid !== undefined) dateChart.xGrid = config.dateChart.xGrid;
+                if (config.dateChart.yGrid !== undefined) dateChart.yGrid = config.dateChart.yGrid;
             }
-        })();
-    </script>
-</body>
-</html>`;
-
-        await page.setContent(html, { waitUntil: 'networkidle0' });
-        
-        // 結果を待つ
-        await page.waitForFunction(() => window.cliResult !== undefined, { timeout: 30000 });
-        
-        const result = await page.evaluate(() => window.cliResult);
-        
-        if (!result.success) {
-            throw new Error(result.error + (result.stack ? '\n' + result.stack : ''));
+            
+            // 系列を作成
+            const seriesMap = new Map();
+            for (const seriesConfig of config.tsv.series) {
+                let series;
+                if (seriesConfig.type === 'line') {
+                    series = dateChart.addLine({
+                        title: seriesConfig.title,
+                        color: seriesConfig.color || 'black',
+                        lineWidth: seriesConfig.lineWidth || 2,
+                        lineType: seriesConfig.lineType || 'solid',
+                        secondAxis: seriesConfig.secondAxis || false,
+                        showMarkers: seriesConfig.showMarkers || false
+                    });
+                } else if (seriesConfig.type === 'bar') {
+                    series = dateChart.addBar({
+                        title: seriesConfig.title,
+                        color: seriesConfig.color || 'blue',
+                        secondAxis: seriesConfig.secondAxis || false
+                    });
+                } else {
+                    throw new Error('Error: Invalid series type: ' + seriesConfig.type);
+                }
+                seriesMap.set(seriesConfig.column, series);
+            }
+            
+            // TSVデータを系列に追加
+            const dateTitle = config.tsv.dateTitle;
+            const commentTitle = config.tsv.commentTitle || '';
+            
+            for (const row of parsedTSV.rows) {
+                const date = row[dateTitle];
+                if (!date) continue;
+                
+                // 日付を正規化
+                const dateFormat = config.dateChart?.dateFormat || 'auto';
+                let normalizedDate = date;
+                if (date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    normalizedDate = date.replace(/-/g, '');
+                } else if (date.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+                    normalizedDate = date.replace(/\//g, '');
+                }
+                
+                // 各系列にデータを追加
+                for (const [column, series] of seriesMap.entries()) {
+                    const valueStr = row[column];
+                    if (!valueStr) continue;
+                    
+                    const value = parseFloat(valueStr);
+                    if (isNaN(value)) continue;
+                    
+                    const comment = commentTitle ? (row[commentTitle] || '') : '';
+                    series.addData(normalizedDate, value, comment);
+                }
+            }
+            
+            // レンダリング
+            chart.render();
+            
+        } else if (config.chartType === 'groupDateChart') {
+            // groupDateChartタイプの実装
+            const dateChart = chart.addDateChart();
+            
+            // dateChartの設定を適用
+            if (config.dateChart) {
+                if (config.dateChart.xAxisTitle) dateChart.xAxisTitle = config.dateChart.xAxisTitle;
+                if (config.dateChart.yAxisTitle) dateChart.yAxisTitle = config.dateChart.yAxisTitle;
+                if (config.dateChart.yAxisScale) dateChart.yAxisScale = config.dateChart.yAxisScale;
+                if (config.dateChart.yAxisFormat) dateChart.yAxisFormat = config.dateChart.yAxisFormat;
+                if (config.dateChart.dateFormat) dateChart.dateFormat = config.dateChart.dateFormat;
+                if (config.dateChart.xGrid !== undefined) dateChart.xGrid = config.dateChart.xGrid;
+                if (config.dateChart.yGrid !== undefined) dateChart.yGrid = config.dateChart.yGrid;
+            }
+            
+            // グループごとのデータを収集
+            const dateTitle = config.tsv.dateTitle;
+            const valueTitle = config.tsv.valueTitle;
+            const groupTitle = config.tsv.groupTitle;
+            const commentTitle = config.tsv.commentTitle || '';
+            const seriesType = config.tsv.seriesType || 'line';
+            const seriesOptions = config.tsv.seriesOptions || {};
+            const seriesColors = config.tsv.seriesColors || ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray'];
+            
+            const dataByGroup = new Map();
+            
+            for (const row of parsedTSV.rows) {
+                const date = row[dateTitle];
+                const groupName = row[groupTitle];
+                const valueStr = row[valueTitle];
+                
+                if (!date || !groupName || !valueStr) continue;
+                
+                const value = parseFloat(valueStr);
+                if (isNaN(value)) continue;
+                
+                // 日付を正規化
+                const dateFormat = config.dateChart?.dateFormat || 'auto';
+                let normalizedDate = date;
+                if (date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    normalizedDate = date.replace(/-/g, '');
+                } else if (date.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+                    normalizedDate = date.replace(/\//g, '');
+                }
+                
+                // normalizeDate関数を使用（ChartCanvasの関数）
+                const normalizeDate = sandbox.window.normalizeDate || sandbox.normalizeDate;
+                normalizedDate = normalizeDate(normalizedDate, dateFormat);
+                
+                const comment = commentTitle ? (row[commentTitle] || '') : '';
+                
+                if (!dataByGroup.has(groupName)) {
+                    dataByGroup.set(groupName, []);
+                }
+                dataByGroup.get(groupName).push({
+                    date: normalizedDate,
+                    value: value,
+                    comment: comment
+                });
+            }
+            
+            // グループごとに系列を作成
+            const sortedGroupNames = Array.from(dataByGroup.keys()).sort();
+            let colorIndex = 0;
+            
+            for (const groupName of sortedGroupNames) {
+                const data = dataByGroup.get(groupName);
+                
+                // 系列を作成
+                const seriesConfig = {
+                    title: groupName,
+                    color: seriesColors[colorIndex % seriesColors.length],
+                    ...seriesOptions
+                };
+                
+                let series;
+                if (seriesType === 'line') {
+                    series = dateChart.addLine(seriesConfig);
+                } else if (seriesType === 'bar') {
+                    series = dateChart.addBar(seriesConfig);
+                } else {
+                    throw new Error('Error: Invalid seriesType: ' + seriesType);
+                }
+                
+                // データを日付でソート
+                data.sort((a, b) => a.date.localeCompare(b.date));
+                
+                // データを追加
+                for (const item of data) {
+                    series.addData(item.date, item.value, item.comment);
+                }
+                
+                colorIndex++;
+            }
+            
+            // レンダリング
+            chart.render();
+            
+        } else if (config.chartType === 'histogram') {
+            // histogramタイプの実装
+            const histogram = chart.addHistogram();
+            
+            // histogramの設定を適用
+            if (config.histogram) {
+                if (config.histogram.xAxisTitle) histogram.xAxisTitle = config.histogram.xAxisTitle;
+                if (config.histogram.yAxisTitle) histogram.yAxisTitle = config.histogram.yAxisTitle;
+                if (config.histogram.xAxisFormat) histogram.xAxisFormat = config.histogram.xAxisFormat;
+                if (config.histogram.yAxisFormat) histogram.yAxisFormat = config.histogram.yAxisFormat;
+                if (config.histogram.binCount !== undefined && config.histogram.binCount !== null) histogram.binCount = config.histogram.binCount;
+                if (config.histogram.binWidth !== undefined && config.histogram.binWidth !== null) histogram.binWidth = config.histogram.binWidth;
+                if (config.histogram.binAlignment) histogram.binAlignment = config.histogram.binAlignment;
+                if (config.histogram.curveMode !== undefined) histogram.curveMode = config.histogram.curveMode;
+                if (config.histogram.xGrid !== undefined) histogram.xGrid = config.histogram.xGrid;
+                if (config.histogram.yGrid !== undefined) histogram.yGrid = config.histogram.yGrid;
+                // 補助線の設定
+                if (config.histogram.showMeanLine !== undefined) histogram.showMeanLine = config.histogram.showMeanLine;
+                if (config.histogram.showMedianLine !== undefined) histogram.showMedianLine = config.histogram.showMedianLine;
+                if (config.histogram.meanLineColor) histogram.meanLineColor = config.histogram.meanLineColor;
+                if (config.histogram.medianLineColor) histogram.medianLineColor = config.histogram.medianLineColor;
+                if (config.histogram.meanLineStyle) histogram.meanLineStyle = config.histogram.meanLineStyle;
+                if (config.histogram.medianLineStyle) histogram.medianLineStyle = config.histogram.medianLineStyle;
+                if (config.histogram.meanLineWidth !== undefined) histogram.meanLineWidth = config.histogram.meanLineWidth;
+                if (config.histogram.medianLineWidth !== undefined) histogram.medianLineWidth = config.histogram.medianLineWidth;
+            }
+            
+            const valueTitle = config.tsv.valueTitle;
+            const groupTitle = config.tsv.groupTitle;
+            const seriesColors = config.tsv.seriesColors || ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray'];
+            
+            if (groupTitle) {
+                // グループ別ヒストグラム
+                const dataByGroup = new Map();
+                
+                for (const row of parsedTSV.rows) {
+                    const groupName = row[groupTitle];
+                    const valueStr = row[valueTitle];
+                    
+                    if (!groupName || !valueStr) continue;
+                    
+                    const value = parseFloat(valueStr);
+                    if (isNaN(value)) continue;
+                    
+                    if (!dataByGroup.has(groupName)) {
+                        dataByGroup.set(groupName, []);
+                    }
+                    dataByGroup.get(groupName).push(value);
+                }
+                
+                // グループごとに系列を作成
+                const sortedGroupNames = Array.from(dataByGroup.keys()).sort();
+                let colorIndex = 0;
+                
+                for (const groupName of sortedGroupNames) {
+                    const values = dataByGroup.get(groupName);
+                    
+                    const series = histogram.addSeries({
+                        title: groupName,
+                        color: seriesColors[colorIndex % seriesColors.length],
+                        opacity: 0.7
+                    });
+                    
+                    for (const value of values) {
+                        series.addData(value);
+                    }
+                    
+                    colorIndex++;
+                }
+            } else {
+                // 単一のヒストグラム系列
+                const values = [];
+                
+                for (const row of parsedTSV.rows) {
+                    const valueStr = row[valueTitle];
+                    if (!valueStr) continue;
+                    
+                    const value = parseFloat(valueStr);
+                    if (isNaN(value)) continue;
+                    
+                    values.push(value);
+                }
+                
+                const series = histogram.addSeries({
+                    title: config.chart?.title || 'データ',
+                    color: seriesColors[0],
+                    opacity: 0.7
+                });
+                
+                for (const value of values) {
+                    series.addData(value);
+                }
+            }
+            
+            // レンダリング
+            chart.render();
+            
+        } else {
+            // 他のチャートタイプは未実装
+            throw new Error('Error: Chart type not yet implemented: ' + config.chartType);
         }
         
-        return result.svgString;
+        // SVG文字列を取得
+        const svgString = chart.getSVGString();
         
-    } finally {
-        if (browser) {
-            await browser.close();
-        }
+        return svgString;
+        
+    } catch (error) {
+        throw new Error(error.message + (error.stack ? '\n' + error.stack : ''));
     }
 }
 

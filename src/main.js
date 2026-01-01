@@ -1,4 +1,77 @@
 /**
+ * 仮想DOM要素クラス（DOMなし環境用）
+ */
+class VirtualSVGElement {
+    constructor(tagName, namespace = 'http://www.w3.org/2000/svg') {
+        this.tagName = tagName;
+        this.namespace = namespace;
+        this.attributes = {};
+        this.children = [];
+        this.textContent = '';
+    }
+
+    setAttribute(name, value) {
+        this.attributes[name] = String(value);
+    }
+
+    getAttribute(name) {
+        return this.attributes[name];
+    }
+
+    appendChild(child) {
+        this.children.push(child);
+        return child;
+    }
+
+    cloneNode(deep) {
+        const clone = new VirtualSVGElement(this.tagName, this.namespace);
+        Object.assign(clone.attributes, this.attributes);
+        clone.textContent = this.textContent;
+        if (deep) {
+            for (const child of this.children) {
+                clone.appendChild(child.cloneNode(true));
+            }
+        }
+        return clone;
+    }
+
+    toXMLString() {
+        let xml = `<${this.tagName}`;
+        for (const [name, value] of Object.entries(this.attributes)) {
+            const escapedValue = String(value).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            xml += ` ${name}="${escapedValue}"`;
+        }
+        if (this.children.length === 0 && !this.textContent) {
+            xml += '/>';
+        } else {
+            xml += '>';
+            if (this.textContent) {
+                xml += this.textContent.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            }
+            for (const child of this.children) {
+                xml += child.toXMLString();
+            }
+            xml += `</${this.tagName}>`;
+        }
+        return xml;
+    }
+}
+
+/**
+ * 仮想DOM API（DOMなし環境用）
+ */
+const VirtualDOM = {
+    createElementNS(namespace, tagName) {
+        // ブラウザ環境でdocumentが存在する場合は、実際のDOM要素を使用
+        if (typeof document !== 'undefined' && document && document.createElementNS) {
+            return document.createElementNS(namespace, tagName);
+        }
+        // DOMなし環境の場合は仮想DOM要素を使用
+        return new VirtualSVGElement(tagName, namespace);
+    }
+};
+
+/**
  * ChartCanvas - メインクラス
  * グラフを作成・管理するためのクラス
  */
@@ -8,13 +81,11 @@ class ChartCanvas {
     static FONT_SIZE_SMALL = 10;    // 小さい大きさ
     /**
      * コンストラクタ
-     * @param {HTMLElement} container - グラフを表示するDOM要素
+     * @param {HTMLElement|null} container - グラフを表示するDOM要素（nullの場合はDOMなしモード）
      */
-    constructor(container) {
-        if (!container) {
-            throw new Error('ChartCanvas requires a container element');
-        }
+    constructor(container = null) {
         this.container = container;
+        this.isHeadlessMode = !container;
         this.width = 1024;
         this.height = 600;
         // タイトル
@@ -134,20 +205,22 @@ class ChartCanvas {
      * SVGを描画（現在は枠だけ）
      */
     render() {
-        // 既存のSVGを削除
-        const existingSvg = this.container.querySelector('svg');
-        if (existingSvg) {
-            existingSvg.remove();
+        // 既存のSVGを削除（DOMモードの場合のみ）
+        if (this.container) {
+            const existingSvg = this.container.querySelector('svg');
+            if (existingSvg) {
+                existingSvg.remove();
+            }
         }
 
         // SVG要素を作成
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        const svg = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('width', this.width);
         svg.setAttribute('height', this.height);
         svg.setAttribute('viewBox', `0 0 ${this.width} ${this.height}`);
 
         // 日本語対応の等幅フォントを設定（style要素を追加）
-        const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+        const style = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'style');
         style.textContent = `
             .chart-text {
                 font-family: ${this.fontFamily};
@@ -162,7 +235,7 @@ class ChartCanvas {
 
         // タイトルを描画
         if (this.title) {
-            const titleText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            const titleText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
             titleText.setAttribute('class', 'chart-text');
             titleText.setAttribute('x', centerX);
             titleText.setAttribute('y', yPos);
@@ -175,7 +248,7 @@ class ChartCanvas {
 
         // サブタイトルを描画
         if (this.subtitle) {
-            const subtitleText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            const subtitleText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
             subtitleText.setAttribute('class', 'chart-text');
             subtitleText.setAttribute('x', centerX);
             subtitleText.setAttribute('y', yPos);
@@ -218,8 +291,10 @@ class ChartCanvas {
             }
         }
 
-        // コンテナに追加
-        this.container.appendChild(svg);
+        // コンテナに追加（DOMモードの場合のみ）
+        if (this.container) {
+            this.container.appendChild(svg);
+        }
         
         // 現在のSVG要素を保存（後で取得できるように）
         this.currentSvg = svg;
@@ -227,10 +302,13 @@ class ChartCanvas {
 
     /**
      * 現在のSVG要素を取得
-     * @returns {SVGElement|null} SVG要素
+     * @returns {SVGElement|VirtualSVGElement|null} SVG要素
      */
     getSVGElement() {
-        return this.container.querySelector('svg') || this.currentSvg || null;
+        if (this.container) {
+            return this.container.querySelector('svg') || this.currentSvg || null;
+        }
+        return this.currentSvg || null;
     }
 
     /**
@@ -243,12 +321,22 @@ class ChartCanvas {
             return '';
         }
         
-        // SVG要素をクローンして、スタイル属性を追加
+        // SVG要素をクローン
         const clonedSvg = svg.cloneNode(true);
         
-        // XML宣言とDOCTYPEを追加して完全なSVGファイルにする
-        const serializer = new XMLSerializer();
-        const svgString = serializer.serializeToString(clonedSvg);
+        // XML文字列に変換
+        let svgString;
+        if (clonedSvg instanceof VirtualSVGElement) {
+            // 仮想DOM要素の場合は直接XML文字列を生成
+            svgString = clonedSvg.toXMLString();
+        } else if (typeof XMLSerializer !== 'undefined') {
+            // ブラウザ環境の場合はXMLSerializerを使用
+            const serializer = new XMLSerializer();
+            svgString = serializer.serializeToString(clonedSvg);
+        } else {
+            // フォールバック: 手動でXML文字列を構築
+            svgString = clonedSvg.outerHTML || '';
+        }
         
         // XML宣言を追加
         return '<?xml version="1.0" encoding="UTF-8"?>\n' + svgString;
@@ -614,7 +702,7 @@ class ChartCanvas {
         const labelMargin = 5; // ラベルと目盛り線の間隔
 
         // X軸の線を描画: (0,0)から(1,0)へ
-        const xAxisLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        const xAxisLine = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
         xAxisLine.setAttribute('x1', plotArea.originX);
         xAxisLine.setAttribute('y1', plotArea.originY);
         xAxisLine.setAttribute('x2', plotArea.topRightX);
@@ -693,7 +781,7 @@ class ChartCanvas {
             const x = plotArea.originX + ratio * plotArea.width;
 
             // 目盛り線を描画
-            const tickLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            const tickLine = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
             tickLine.setAttribute('x1', x);
             tickLine.setAttribute('y1', plotArea.originY);
             tickLine.setAttribute('x2', x);
@@ -722,7 +810,7 @@ class ChartCanvas {
             }
 
             // 1段目（日付のみ）を描画
-            const firstLineElement = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            const firstLineElement = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
             firstLineElement.setAttribute('class', 'chart-text');
             firstLineElement.setAttribute('x', x);
             firstLineElement.setAttribute('y', plotArea.originY + tickLineLength + labelMargin + fontSize);
@@ -733,7 +821,7 @@ class ChartCanvas {
 
             // 2段目（年/月/日または月/日）を描画（変わり目と最初のみ）
             if (secondLineText) {
-                const secondLineElement = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                const secondLineElement = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
                 secondLineElement.setAttribute('class', 'chart-text');
                 secondLineElement.setAttribute('x', x);
                 secondLineElement.setAttribute('y', plotArea.originY + tickLineLength + labelMargin + fontSize * 2);
@@ -764,7 +852,7 @@ class ChartCanvas {
         const labelMargin = 5; // ラベルと目盛り線の間隔
 
         // Y軸の線を描画: (0,0)から(0,1)へ
-        const yAxisLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        const yAxisLine = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
         yAxisLine.setAttribute('x1', plotArea.originX);
         yAxisLine.setAttribute('y1', plotArea.originY);
         yAxisLine.setAttribute('x2', plotArea.originX);
@@ -788,7 +876,7 @@ class ChartCanvas {
             const y = plotArea.originY - ratio * plotHeight;
 
             // 目盛り線を描画（Y軸の左側に短い線）
-            const tickLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            const tickLine = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
             tickLine.setAttribute('x1', plotArea.originX);
             tickLine.setAttribute('y1', y);
             tickLine.setAttribute('x2', plotArea.originX - tickLineLength);
@@ -799,7 +887,7 @@ class ChartCanvas {
 
             // ラベルを描画（目盛り線の左側）
             const formattedLabel = this.formatNumber(labelValue, yAxisFormat);
-            const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            const labelText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
             labelText.setAttribute('class', 'chart-text');
             labelText.setAttribute('x', plotArea.originX - tickLineLength - labelMargin);
             labelText.setAttribute('y', y);
@@ -819,7 +907,7 @@ class ChartCanvas {
                 subtitleY += fontSize + 5;
             }
 
-            const unitText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            const unitText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
             unitText.setAttribute('class', 'chart-text');
             unitText.setAttribute('x', plotArea.originX);
             unitText.setAttribute('y', subtitleY);
@@ -852,7 +940,7 @@ class ChartCanvas {
         const labelMargin = 5; // ラベルと目盛り線の間隔
 
         // 右スケールの線を描画: (1,0)から(1,1)へ
-        const rightYAxisLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        const rightYAxisLine = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
         rightYAxisLine.setAttribute('x1', plotArea.topRightX);
         rightYAxisLine.setAttribute('y1', plotArea.originY);
         rightYAxisLine.setAttribute('x2', plotArea.topRightX);
@@ -876,7 +964,7 @@ class ChartCanvas {
             const y = plotArea.originY - ratio * plotHeight;
 
             // 目盛り線を描画（右スケールの右側に短い線）
-            const tickLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            const tickLine = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
             tickLine.setAttribute('x1', plotArea.topRightX);
             tickLine.setAttribute('y1', y);
             tickLine.setAttribute('x2', plotArea.topRightX + tickLineLength);
@@ -887,7 +975,7 @@ class ChartCanvas {
 
             // ラベルを描画（目盛り線の右側）
             const formattedLabel = this.formatNumber(labelValue, secondAxisFormat);
-            const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            const labelText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
             labelText.setAttribute('class', 'chart-text');
             labelText.setAttribute('x', plotArea.topRightX + tickLineLength + labelMargin);
             labelText.setAttribute('y', y);
@@ -907,7 +995,7 @@ class ChartCanvas {
                 subtitleY += fontSize + 5;
             }
 
-            const unitText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            const unitText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
             unitText.setAttribute('class', 'chart-text');
             unitText.setAttribute('x', plotArea.topRightX);
             unitText.setAttribute('y', subtitleY);
@@ -972,7 +1060,7 @@ class ChartCanvas {
                     const ratio = extendedDateRange > 0 ? (dateValue - extendedMinDateValue) / extendedDateRange : 0;
                     const x = plotArea.originX + ratio * plotArea.width;
 
-                    const gridLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    const gridLine = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
                     gridLine.setAttribute('x1', x);
                     gridLine.setAttribute('y1', plotArea.topRightY);
                     gridLine.setAttribute('x2', x);
@@ -994,7 +1082,7 @@ class ChartCanvas {
                 const ratio = primaryScale.max > 0 ? labelValue / primaryScale.max : 0;
                 const y = plotArea.originY - ratio * plotHeight;
 
-                const gridLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                const gridLine = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
                 gridLine.setAttribute('x1', plotArea.originX);
                 gridLine.setAttribute('y1', y);
                 gridLine.setAttribute('x2', plotArea.topRightX);
@@ -1236,7 +1324,7 @@ class ChartCanvas {
             }
 
             // 線を描画（path要素を使用）
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            const path = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'path');
             
             // パスデータを生成
             let pathData = `M ${points[0].x} ${points[0].y}`;
@@ -1366,7 +1454,7 @@ class ChartCanvas {
                 const barRight = x + barWidth / 2;
 
                 // 棒を描画（rect要素を使用）
-                const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                const rect = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'rect');
                 rect.setAttribute('x', barLeft);
                 rect.setAttribute('y', barTop);
                 rect.setAttribute('width', barWidth);
@@ -1376,7 +1464,7 @@ class ChartCanvas {
                 rect.setAttribute('stroke', 'none');
 
                 // ツールチップを追加（2行表示）
-                const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+                const title = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'title');
                 const yAxisFormat = bar.secondAxis ? (dateChart.secondAxisFormat || '#,##0') : (dateChart.yAxisFormat || '#,##0');
                 const formattedValue = this.formatNumber(item.value, yAxisFormat);
                 const formattedDate = this.formatDateToYYYYMMDD(item.date);
@@ -1417,7 +1505,7 @@ class ChartCanvas {
         const markerRadius = 4; // マーカーの半径
         
         // マーカーの円を描画
-        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        const circle = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'circle');
         circle.setAttribute('cx', x);
         circle.setAttribute('cy', y);
         circle.setAttribute('r', markerRadius);
@@ -1426,7 +1514,7 @@ class ChartCanvas {
         circle.setAttribute('stroke-width', '1');
         
         // マウスオーバーでツールチップを表示（2行表示）
-        const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        const title = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'title');
         const yAxisFormat = dateChart.yAxisFormat || '#,##0';
         const formattedValue = this.formatNumber(value, yAxisFormat);
         const formattedDate = this.formatDateToYYYYMMDD(date);
@@ -1488,7 +1576,7 @@ class ChartCanvas {
         }
         
         // コメントテキストを描画
-        const commentElement = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        const commentElement = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
         commentElement.setAttribute('class', 'chart-text');
         commentElement.setAttribute('x', commentX);
         commentElement.setAttribute('y', commentY);
@@ -1579,7 +1667,7 @@ class ChartCanvas {
 
             if (item.type === 'line') {
                 // 線グラフのアイコンを描画
-                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                const line = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
                 line.setAttribute('x1', iconX);
                 line.setAttribute('y1', iconY);
                 line.setAttribute('x2', iconX + iconWidth);
@@ -1597,7 +1685,7 @@ class ChartCanvas {
                 svg.appendChild(line);
             } else if (item.type === 'bar') {
                 // 棒グラフのアイコンを描画
-                const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                const rect = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'rect');
                 rect.setAttribute('x', iconX);
                 rect.setAttribute('y', iconY - iconBarHeight / 2);
                 rect.setAttribute('width', iconBarWidth);
@@ -1610,7 +1698,7 @@ class ChartCanvas {
             // ラベルを描画
             const labelX = iconX + iconWidth + iconLabelGap;
             const labelY = currentY;
-            const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            const labelText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
             labelText.setAttribute('class', 'chart-text');
             labelText.setAttribute('x', labelX);
             labelText.setAttribute('y', labelY);
@@ -1809,10 +1897,15 @@ class ChartCanvas {
         this.renderHistogramGrid(svg, plotArea, plotWidth, plotHeight);
 
         // 各系列のヒストグラムを描画
+        let seriesIndex = 0;
         for (const series of histogramChart.series) {
-            if (series.data.length === 0) continue;
+            if (series.data.length === 0) {
+                seriesIndex++;
+                continue;
+            }
 
-            const frequencies = histogramChart.binData(series.data, plotArea.bins);
+            // binDataMapを更新するために系列を渡す
+            const frequencies = histogramChart.binData(series.data, plotArea.bins, series);
             const maxFrequency = Math.max(...plotArea.yAxisScale.labels);
             const dataRange = plotArea.dataRange.max - plotArea.dataRange.min;
 
@@ -1831,7 +1924,7 @@ class ChartCanvas {
                 );
 
                 if (pathString) {
-                    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    const path = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'path');
                     path.setAttribute('d', pathString);
                     path.setAttribute('fill', 'none');
                     path.setAttribute('stroke', series.color);
@@ -1863,7 +1956,7 @@ class ChartCanvas {
                     const y = plotArea.originY - barHeight;
 
                     // 矩形を描画
-                    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                    const rect = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'rect');
                     rect.setAttribute('x', x);
                     rect.setAttribute('y', y);
                     rect.setAttribute('width', barWidth);
@@ -1893,7 +1986,7 @@ class ChartCanvas {
         const labelMargin = 5;
 
         // X軸の線を描画
-        const xAxisLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        const xAxisLine = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
         xAxisLine.setAttribute('x1', plotArea.originX);
         xAxisLine.setAttribute('y1', plotArea.originY);
         xAxisLine.setAttribute('x2', plotArea.topRightX);
@@ -1903,7 +1996,7 @@ class ChartCanvas {
         svg.appendChild(xAxisLine);
 
         // Y軸の線を描画
-        const yAxisLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        const yAxisLine = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
         yAxisLine.setAttribute('x1', plotArea.originX);
         yAxisLine.setAttribute('y1', plotArea.originY);
         yAxisLine.setAttribute('x2', plotArea.originX);
@@ -1922,7 +2015,7 @@ class ChartCanvas {
             const x = plotArea.originX + xRatio * plotWidth;
 
             // 目盛り線を描画
-            const tickLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            const tickLine = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
             tickLine.setAttribute('x1', x);
             tickLine.setAttribute('y1', plotArea.originY);
             tickLine.setAttribute('x2', x);
@@ -1933,7 +2026,7 @@ class ChartCanvas {
 
             // ラベルを描画
             const formatted = this.formatNumber(labelValue, xAxisFormat);
-            const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            const labelText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
             labelText.setAttribute('class', 'chart-text');
             labelText.setAttribute('x', x);
             labelText.setAttribute('y', plotArea.originY + tickLineLength + labelMargin + metrics.height);
@@ -1950,7 +2043,7 @@ class ChartCanvas {
             const y = plotArea.originY - yRatio * plotHeight;
 
             // 目盛り線を描画
-            const tickLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            const tickLine = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
             tickLine.setAttribute('x1', plotArea.originX);
             tickLine.setAttribute('y1', y);
             tickLine.setAttribute('x2', plotArea.originX - tickLineLength);
@@ -1962,7 +2055,7 @@ class ChartCanvas {
             // ラベルを描画
             const formatted = this.formatNumber(label, yAxisFormat);
             const labelWidth = this.getTextWidth(formatted, fontSize);
-            const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            const labelText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
             labelText.setAttribute('class', 'chart-text');
             labelText.setAttribute('x', plotArea.originX - tickLineLength - labelMargin);
             labelText.setAttribute('y', y);
@@ -1975,7 +2068,7 @@ class ChartCanvas {
 
         // X軸のタイトルを描画
         if (histogramChart.xAxisTitle) {
-            const xAxisTitleText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            const xAxisTitleText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
             xAxisTitleText.setAttribute('class', 'chart-text');
             xAxisTitleText.setAttribute('x', plotArea.originX + plotWidth / 2);
             xAxisTitleText.setAttribute('y', plotArea.originY + tickLineLength + labelMargin + metrics.height * 2 + 10);
@@ -1987,7 +2080,7 @@ class ChartCanvas {
 
         // Y軸のタイトルを描画
         if (histogramChart.yAxisTitle) {
-            const yAxisTitleText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            const yAxisTitleText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
             yAxisTitleText.setAttribute('class', 'chart-text');
             yAxisTitleText.setAttribute('x', plotArea.originX - tickLineLength - labelMargin - 30);
             yAxisTitleText.setAttribute('y', plotArea.topRightY + plotHeight / 2);
@@ -2028,7 +2121,7 @@ class ChartCanvas {
                 const xRatio = dataRange > 0 ? (labelValue - plotArea.dataRange.min) / dataRange : 0;
                 const x = plotArea.originX + xRatio * plotWidth;
 
-                const gridLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                const gridLine = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
                 gridLine.setAttribute('x1', x);
                 gridLine.setAttribute('y1', plotArea.topRightY);
                 gridLine.setAttribute('x2', x);
@@ -2046,7 +2139,7 @@ class ChartCanvas {
                 const yRatio = label / plotArea.yAxisScale.max;
                 const y = plotArea.originY - yRatio * plotHeight;
 
-                const gridLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                const gridLine = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
                 gridLine.setAttribute('x1', plotArea.originX);
                 gridLine.setAttribute('y1', y);
                 gridLine.setAttribute('x2', plotArea.topRightX);
@@ -2120,7 +2213,7 @@ class ChartCanvas {
             const iconY = currentY - iconHeight / 2;
 
             // ヒストグラムのアイコンを描画
-            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            const rect = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'rect');
             rect.setAttribute('x', iconX);
             rect.setAttribute('y', iconY);
             rect.setAttribute('width', iconWidth);
@@ -2134,7 +2227,7 @@ class ChartCanvas {
             // ラベルを描画
             const labelX = iconX + iconWidth + iconLabelGap;
             const labelY = currentY;
-            const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            const labelText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
             labelText.setAttribute('class', 'chart-text');
             labelText.setAttribute('x', labelX);
             labelText.setAttribute('y', labelY);
