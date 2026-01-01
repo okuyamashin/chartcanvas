@@ -6,6 +6,11 @@ A JavaScript library for creating and visualizing charts with SVG output.
 
 ChartCanvas is a lightweight, dependency-free JavaScript library for creating various types of charts including line charts, bar charts, and pie charts. It focuses on time-series data visualization with date-based X-axis support.
 
+**Key Features:**
+- **Zero Dependencies**: No external libraries required - works with pure JavaScript
+- **DOM-Free Mode**: Can run without DOM (headless mode) for server-side and CLI usage
+- **Node.js Compatible**: Works in both browser and Node.js environments
+
 ## Features
 
 - **Line Charts**: Create line graphs with customizable styles
@@ -68,7 +73,7 @@ chart.render();
 
 ### CLI Usage
 
-ChartCanvas can also be used from the command line:
+ChartCanvas can also be used from the command line without any dependencies (no Puppeteer or browser required):
 
 ```bash
 # Using a config file
@@ -77,6 +82,8 @@ cat data.tsv | node cli.js -c config.json > output.svg
 # Using inline JSON config
 cat data.tsv | node cli.js -j '{"chartType":"dateChart","tsv":{"dateTitle":"日付","series":[{"type":"line","title":"売上","column":"売上"}]}}' > output.svg
 ```
+
+**Note:** The CLI uses Node.js's built-in `vm` module and works completely headless - no DOM or browser dependencies required.
 
 See [CLI Specification](./docs/21-CLI仕様.md) and [CLI Config JSON Specification](./docs/22-CLI設定JSON仕様.md) for details.
 

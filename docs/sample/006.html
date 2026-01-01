@@ -52,6 +52,18 @@
 
             try {
                 await loader.load();
+                
+                // 各系列に対して平均値と中央値の線を表示するオプションを設定
+                for (const series of histogram.series) {
+                    series.showMeanLine = true;
+                    series.showMedianLine = true;
+                    // 各系列の色に合わせて平均値・中央値の線の色を設定
+                    series.meanLineColor = series.color;
+                    series.medianLineColor = series.color;
+                    series.meanLineStyle = 'dashed';
+                    series.medianLineStyle = 'dashed';
+                }
+                
                 chart.render();
             } catch (error) {
                 console.error('TSVファイルの読み込みエラー:', error);

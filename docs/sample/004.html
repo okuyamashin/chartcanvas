@@ -37,6 +37,14 @@
             histogram.yAxisFormat = '#,##0';
             histogram.title = '売上の分布';
             histogram.subtitle = '全店舗の売上データ';
+            
+            // 平均値と中央値の線を表示
+            histogram.showMeanLine = true;
+            histogram.showMedianLine = true;
+            histogram.meanLineColor = 'red';
+            histogram.medianLineColor = 'blue';
+            histogram.meanLineStyle = 'dashed';
+            histogram.medianLineStyle = 'dashed';
 
             // TSVローダーを使用してデータを読み込む
             const loader = histogram.tsvLoader('./data-histogram.tsv');

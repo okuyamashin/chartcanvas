@@ -32,6 +32,16 @@ class HistogramChart {
         this.xGrid = false; // X軸のグリッド線を表示するか（デフォルト: false）
         this.yGrid = false; // Y軸のグリッド線を表示するか（デフォルト: false）
         
+        // 補助線の設定
+        this.showMeanLine = false; // 平均線を表示するか（デフォルト: false）
+        this.showMedianLine = false; // 中央値線を表示するか（デフォルト: false）
+        this.meanLineColor = 'red'; // 平均線の色（デフォルト: red）
+        this.medianLineColor = 'blue'; // 中央値線の色（デフォルト: blue）
+        this.meanLineStyle = 'dashed'; // 平均線のスタイル（'solid', 'dashed', 'dotted'）
+        this.medianLineStyle = 'dashed'; // 中央値線のスタイル（'solid', 'dashed', 'dotted'）
+        this.meanLineWidth = 2; // 平均線の幅（デフォルト: 2）
+        this.medianLineWidth = 2; // 中央値線の幅（デフォルト: 2）
+        
         // データ系列を保持（グループ別ヒストグラム対応）
         this.series = [];
     }
@@ -79,6 +89,54 @@ class HistogramChart {
         }
 
         return { min, max };
+    }
+
+    /**
+     * すべての系列のデータを結合して取得
+     * @returns {Array<number>} すべてのデータ値の配列
+     */
+    getAllData() {
+        const allData = [];
+        for (const series of this.series) {
+            allData.push(...series.data);
+        }
+        return allData;
+    }
+
+    /**
+     * 平均値を計算
+     * @returns {number|null} 平均値（データがない場合はnull）
+     */
+    calculateMean() {
+        const allData = this.getAllData();
+        if (allData.length === 0) {
+            return null;
+        }
+        const sum = allData.reduce((acc, val) => acc + val, 0);
+        return sum / allData.length;
+    }
+
+    /**
+     * 中央値を計算
+     * @returns {number|null} 中央値（データがない場合はnull）
+     */
+    calculateMedian() {
+        const allData = this.getAllData();
+        if (allData.length === 0) {
+            return null;
+        }
+        
+        // データをソート
+        const sorted = [...allData].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        
+        if (sorted.length % 2 === 0) {
+            // 偶数の場合、中央の2つの値の平均
+            return (sorted[mid - 1] + sorted[mid]) / 2;
+        } else {
+            // 奇数の場合、中央の値
+            return sorted[mid];
+        }
     }
 
     /**

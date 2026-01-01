@@ -8,17 +8,22 @@ new ChartCanvas(containerElement)
 ```
 
 **パラメータ:**
-- `containerElement` (HTMLElement): グラフを表示するDOM要素
+- `containerElement` (HTMLElement | null): グラフを表示するDOM要素（`null`の場合はDOMなしモード）
 
 **例:**
 ```javascript
+// ブラウザ環境での使用
 const chart_div = document.getElementById('chart_div');
 const chart = new ChartCanvas(chart_div);
+
+// DOMなしモード（サーバーサイドやCLI環境）
+const chart = new ChartCanvas(null);
 ```
 
 **注意:**
 - コンテナ要素のサイズは、JavaScript側で`size()`メソッドで指定します
 - SVGのサイズとコンテナのサイズを一致させるため、CSSでのサイズ指定は不要です
+- `containerElement`に`null`を指定すると、DOMなしモード（headless mode）で動作します。このモードでは、SVGは`getSVGString()`メソッドで文字列として取得できます
 
 ### メソッド
 
@@ -178,15 +183,27 @@ SVGファイルとしてダウンロードします。
 chart.downloadSVG('chart.svg');
 ```
 
-#### `getSVG()` (要検討)
-SVG文字列を取得します。
+#### `getSVGString()`
+SVG文字列を取得します。DOMなしモード（headless mode）でも使用できます。
 
-**戻り値:** `string`
+**戻り値:** `string` SVGの文字列表現（XML宣言付き）
 
 **例:**
 ```javascript
-const svgString = chart.getSVG();
+// ブラウザ環境
+const chart = new ChartCanvas(document.getElementById('chart_div'));
+chart.render();
+const svgString = chart.getSVGString();
+
+// DOMなしモード（サーバーサイドやCLI環境）
+const chart = new ChartCanvas(null);
+chart.render();
+const svgString = chart.getSVGString(); // SVG文字列を取得
 ```
+
+**注意:**
+- DOMなしモードでは、`render()`を呼び出した後に`getSVGString()`でSVG文字列を取得できます
+- 返される文字列にはXML宣言（`<?xml version="1.0" encoding="UTF-8"?>`）が含まれます
 
 #### `clear()` (要検討)
 すべてのグラフをクリアします。
@@ -957,7 +974,7 @@ chart.render();
 
 7. **Phase 7: 出力機能**
    - `downloadSVG()`
-   - `getSVG()`
+   - `getSVGString()`
 
 8. **Phase 8: オプション機能**
    - 各種オプション設定

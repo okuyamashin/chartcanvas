@@ -633,8 +633,21 @@ class HistogramChart {
         this.xGrid = false; // X軸のグリッド線を表示するか（デフォルト: false）
         this.yGrid = false; // Y軸のグリッド線を表示するか（デフォルト: false）
         
+        // 補助線の設定
+        this.showMeanLine = false; // 平均線を表示するか（デフォルト: false）
+        this.showMedianLine = false; // 中央値線を表示するか（デフォルト: false）
+        this.meanLineColor = 'red'; // 平均線の色（デフォルト: red）
+        this.medianLineColor = 'blue'; // 中央値線の色（デフォルト: blue）
+        this.meanLineStyle = 'dashed'; // 平均線のスタイル（'solid', 'dashed', 'dotted'）
+        this.medianLineStyle = 'dashed'; // 中央値線のスタイル（'solid', 'dashed', 'dotted'）
+        this.meanLineWidth = 2; // 平均線の幅（デフォルト: 2）
+        this.medianLineWidth = 2; // 中央値線の幅（デフォルト: 2）
+        
         // データ系列を保持（グループ別ヒストグラム対応）
         this.series = [];
+        
+        // クリックイベントのコールバック関数
+        this.onBinClick = null;
     }
 
     /**
@@ -680,6 +693,54 @@ class HistogramChart {
         }
 
         return { min, max };
+    }
+
+    /**
+     * すべての系列のデータを結合して取得
+     * @returns {Array<number>} すべてのデータ値の配列
+     */
+    getAllData() {
+        const allData = [];
+        for (const series of this.series) {
+            allData.push(...series.data);
+        }
+        return allData;
+    }
+
+    /**
+     * 平均値を計算
+     * @returns {number|null} 平均値（データがない場合はnull）
+     */
+    calculateMean() {
+        const allData = this.getAllData();
+        if (allData.length === 0) {
+            return null;
+        }
+        const sum = allData.reduce((acc, val) => acc + val, 0);
+        return sum / allData.length;
+    }
+
+    /**
+     * 中央値を計算
+     * @returns {number|null} 中央値（データがない場合はnull）
+     */
+    calculateMedian() {
+        const allData = this.getAllData();
+        if (allData.length === 0) {
+            return null;
+        }
+        
+        // データをソート
+        const sorted = [...allData].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        
+        if (sorted.length % 2 === 0) {
+            // 偶数の場合、中央の2つの値の平均
+            return (sorted[mid - 1] + sorted[mid]) / 2;
+        } else {
+            // 奇数の場合、中央の値
+            return sorted[mid];
+        }
     }
 
     /**
@@ -773,34 +834,38 @@ class HistogramChart {
         // 自動計算: X軸スケールを計算してから、ビンを設定
         const xAxisScale = this.calculateXAxisScale(min, max);
         
-        // Sturgesの公式でビン数を計算
-        let totalDataCount = 0;
-        for (const series of this.series) {
-            totalDataCount += series.data.length;
-        }
-
-        if (totalDataCount === 0) {
-            // データがない場合、X軸スケールに基づいてビンを設定
-            const range = xAxisScale.maxTickValue - xAxisScale.minTickValue;
-            const defaultBinCount = Math.min(20, Math.max(10, Math.floor(range / xAxisScale.tickInterval)));
-            const binWidth = range / defaultBinCount;
-            const bins = [];
-            for (let i = 0; i <= defaultBinCount; i++) {
-                bins.push(xAxisScale.minTickValue + i * binWidth);
-            }
-            return { binCount: defaultBinCount, binWidth, bins, xAxisScale };
-        }
-
-        // Sturgesの公式でビン数を計算
-        const binCount = Math.ceil(Math.log2(totalDataCount) + 1);
-        
-        // X軸スケールの範囲内でビンを設定
-        const range = xAxisScale.maxTickValue - xAxisScale.minTickValue;
-        const binWidth = range / binCount;
+        // X軸スケールの目盛り位置をそのままビンの境界として使用（1対1で一致）
+        // これにより、目盛りの位置とビンの境界が完全に一致する
         const bins = [];
-        for (let i = 0; i <= binCount; i++) {
-            bins.push(xAxisScale.minTickValue + i * binWidth);
+        
+        // 最初のビンの左端を追加（minTickValueからtickInterval分前）
+        const firstBinLeft = xAxisScale.minTickValue - xAxisScale.tickInterval;
+        if (firstBinLeft < min) {
+            // データの最小値より小さい場合は、minTickValueを最初の境界とする
+            bins.push(xAxisScale.minTickValue);
+        } else {
+            bins.push(firstBinLeft);
         }
+        
+        // X軸スケールの各目盛り位置をビンの境界として追加
+        for (const label of xAxisScale.labels) {
+            bins.push(label);
+        }
+        
+        // 最後のビンの右端を追加（maxTickValue + tickInterval）
+        const lastBinRight = xAxisScale.maxTickValue + xAxisScale.tickInterval;
+        if (lastBinRight > max) {
+            // データの最大値より大きい場合は、maxTickValueを最後の境界とする
+            bins.push(xAxisScale.maxTickValue);
+        } else {
+            bins.push(lastBinRight);
+        }
+        
+        // ビン数を計算（境界数 - 1）
+        const binCount = bins.length - 1;
+        
+        // ビン幅はtickIntervalと同じ（各ビンの幅はtickInterval）
+        const binWidth = xAxisScale.tickInterval;
 
         return { binCount, binWidth, bins, xAxisScale };
     }
@@ -809,16 +874,29 @@ class HistogramChart {
      * データをビンに分類
      * @param {Array<number>} data - データ配列
      * @param {Array<number>} bins - ビンの境界値配列
+     * @param {HistogramSeries} series - 系列（オプション、binDataMapを更新する場合）
      * @returns {Array<number>} 各ビンの頻度
      */
-    binData(data, bins) {
+    binData(data, bins, series = null) {
         const frequencies = new Array(bins.length - 1).fill(0);
+        
+        // 系列が指定されている場合、binDataMapを初期化
+        if (series) {
+            series.binDataMap.clear();
+            for (let i = 0; i < bins.length - 1; i++) {
+                series.binDataMap.set(i, []);
+            }
+        }
 
         for (const value of data) {
             // ビンに分類
             for (let i = 0; i < bins.length - 1; i++) {
                 if (value >= bins[i] && (i === bins.length - 2 ? value <= bins[i + 1] : value < bins[i + 1])) {
                     frequencies[i]++;
+                    // 系列が指定されている場合、元のデータを記録
+                    if (series) {
+                        series.binDataMap.get(i).push(value);
+                    }
                     break;
                 }
             }
@@ -938,6 +1016,51 @@ class HistogramSeries {
         this.color = options.color || 'blue';
         this.opacity = options.opacity !== undefined ? options.opacity : 0.7;
         this.data = []; // 生データの配列
+        this.binDataMap = new Map(); // ビンインデックス -> 元のデータ配列のマッピング
+        
+        // 系列ごとの補助線の設定
+        this.showMeanLine = options.showMeanLine || false; // 平均線を表示するか（デフォルト: false）
+        this.showMedianLine = options.showMedianLine || false; // 中央値線を表示するか（デフォルト: false）
+        this.meanLineColor = options.meanLineColor || this.color; // 平均線の色（デフォルト: 系列の色）
+        this.medianLineColor = options.medianLineColor || this.color; // 中央値線の色（デフォルト: 系列の色）
+        this.meanLineStyle = options.meanLineStyle || 'dashed'; // 平均線のスタイル（'solid', 'dashed', 'dotted'）
+        this.medianLineStyle = options.medianLineStyle || 'dashed'; // 中央値線のスタイル（'solid', 'dashed', 'dotted'）
+        this.meanLineWidth = options.meanLineWidth || 2; // 平均線の幅（デフォルト: 2）
+        this.medianLineWidth = options.medianLineWidth || 2; // 中央値線の幅（デフォルト: 2）
+    }
+    
+    /**
+     * この系列の平均値を計算
+     * @returns {number|null} 平均値（データがない場合はnull）
+     */
+    calculateMean() {
+        if (this.data.length === 0) {
+            return null;
+        }
+        const sum = this.data.reduce((acc, val) => acc + val, 0);
+        return sum / this.data.length;
+    }
+    
+    /**
+     * この系列の中央値を計算
+     * @returns {number|null} 中央値（データがない場合はnull）
+     */
+    calculateMedian() {
+        if (this.data.length === 0) {
+            return null;
+        }
+        
+        // データをソート
+        const sorted = [...this.data].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        
+        if (sorted.length % 2 === 0) {
+            // 偶数の場合、中央の2つの値の平均
+            return (sorted[mid - 1] + sorted[mid]) / 2;
+        } else {
+            // 奇数の場合、中央の値
+            return sorted[mid];
+        }
     }
 
     /**
@@ -2841,27 +2964,51 @@ class ChartCanvas {
             return { max: 10, tickCount: 6, labels: [0, 2, 4, 6, 8, 10] };
         }
 
-        // 適切な間隔を計算
-        const magnitude = Math.pow(10, Math.floor(Math.log10(maxValue)));
-        const normalized = maxValue / magnitude;
+        // 最小値は0（頻度なので常に0から始まる）
+        const rangeMin = 0;
+        const range = maxValue - rangeMin;
 
+        // ラベル間隔を計算（DateChartのcalculateYAxisScaleと同じロジック）
         let tickInterval;
-        if (normalized <= 1) {
-            tickInterval = magnitude / 5;
-        } else if (normalized <= 2) {
-            tickInterval = magnitude / 5;
-        } else if (normalized <= 5) {
-            tickInterval = magnitude / 5;
+        let maxTickValue;
+
+        if (range <= 30) {
+            // 範囲が30以下の場合: 1刻み
+            tickInterval = 1;
+            maxTickValue = Math.ceil(maxValue);
         } else {
-            tickInterval = magnitude / 5;
+            // 範囲が30超の場合: 10の倍数で間隔を調整
+            // 適切な間隔を見つける（ラベル数が30個以下になるように）
+            const idealTickCount = 10; // 理想的な目盛りの数
+            const idealInterval = range / idealTickCount;
+            
+            // 10のべき乗で丸める
+            const magnitude = Math.pow(10, Math.floor(Math.log10(idealInterval)));
+            tickInterval = magnitude;
+            
+            // 間隔が小さすぎる場合は次のレベルに上げる
+            if (idealInterval / magnitude > 5) {
+                tickInterval = magnitude * 5;
+            } else if (idealInterval / magnitude > 2) {
+                tickInterval = magnitude * 2;
+            }
+            
+            // 最大値を間隔の倍数に丸める
+            maxTickValue = Math.ceil(maxValue / tickInterval) * tickInterval;
         }
 
-        const maxTickValue = Math.ceil(maxValue / tickInterval) * tickInterval;
+        // ラベルを生成
         const labels = [];
-        let currentValue = 0;
+        let currentValue = rangeMin;
+        
         while (currentValue <= maxTickValue) {
             labels.push(currentValue);
             currentValue += tickInterval;
+        }
+
+        // 最大値が含まれていない場合は追加
+        if (labels[labels.length - 1] < maxValue) {
+            labels.push(maxTickValue);
         }
 
         return {
@@ -2897,11 +3044,161 @@ class ChartCanvas {
         // グリッド線を描画（軸の後、データ系列の前）
         this.renderHistogramGrid(svg, plotArea, plotWidth, plotHeight);
 
-        // 各系列のヒストグラムを描画
-        for (const series of histogramChart.series) {
-            if (series.data.length === 0) continue;
+        // 平均値と中央値の線を描画（データ系列の前）
+        // ラベル情報を収集するための配列
+        const labelInfos = [];
+        
+        if (histogramChart.showMeanLine || histogramChart.showMedianLine) {
+            const mean = histogramChart.calculateMean();
+            const median = histogramChart.calculateMedian();
+            const dataRange = plotArea.dataRange.max - plotArea.dataRange.min;
+            
+            if (histogramChart.showMeanLine && mean !== null) {
+                const xRatio = dataRange > 0 ? (mean - plotArea.dataRange.min) / dataRange : 0;
+                const x = plotArea.originX + xRatio * plotWidth;
+                
+                const meanLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                meanLine.setAttribute('x1', x);
+                meanLine.setAttribute('y1', plotArea.originY);
+                meanLine.setAttribute('x2', x);
+                meanLine.setAttribute('y2', plotArea.topRightY);
+                meanLine.setAttribute('stroke', histogramChart.meanLineColor);
+                meanLine.setAttribute('stroke-width', histogramChart.meanLineWidth);
+                
+                // 線のスタイルを設定（平均値は短い破線パターン）
+                if (histogramChart.meanLineStyle === 'dashed') {
+                    meanLine.setAttribute('stroke-dasharray', '5,5');
+                } else if (histogramChart.meanLineStyle === 'dotted') {
+                    meanLine.setAttribute('stroke-dasharray', '2,2');
+                }
+                
+                svg.appendChild(meanLine);
+                
+                // ラベル情報を追加
+                const xAxisFormat = histogramChart.xAxisFormat || '#,##0';
+                labelInfos.push({
+                    x: x,
+                    groupName: '',
+                    type: '平均値',
+                    value: mean,
+                    formattedValue: this.formatNumber(mean, xAxisFormat)
+                });
+            }
+            
+            if (histogramChart.showMedianLine && median !== null) {
+                const xRatio = dataRange > 0 ? (median - plotArea.dataRange.min) / dataRange : 0;
+                const x = plotArea.originX + xRatio * plotWidth;
+                
+                const medianLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                medianLine.setAttribute('x1', x);
+                medianLine.setAttribute('y1', plotArea.originY);
+                medianLine.setAttribute('x2', x);
+                medianLine.setAttribute('y2', plotArea.topRightY);
+                medianLine.setAttribute('stroke', histogramChart.medianLineColor);
+                medianLine.setAttribute('stroke-width', histogramChart.medianLineWidth);
+                
+                // 線のスタイルを設定（中央値は長い破線パターンで平均値と区別）
+                if (histogramChart.medianLineStyle === 'dashed') {
+                    medianLine.setAttribute('stroke-dasharray', '10,5');
+                } else if (histogramChart.medianLineStyle === 'dotted') {
+                    medianLine.setAttribute('stroke-dasharray', '2,2');
+                }
+                
+                svg.appendChild(medianLine);
+                
+                // ラベル情報を追加
+                const xAxisFormat = histogramChart.xAxisFormat || '#,##0';
+                labelInfos.push({
+                    x: x,
+                    groupName: '',
+                    type: '中央値',
+                    value: median,
+                    formattedValue: this.formatNumber(median, xAxisFormat)
+                });
+            }
+        }
 
-            const frequencies = histogramChart.binData(series.data, plotArea.bins);
+        // 各系列のヒストグラムを描画
+        let seriesIndex = 0;
+        for (const series of histogramChart.series) {
+            if (series.data.length === 0) {
+                seriesIndex++;
+                continue;
+            }
+
+            // この系列の平均値と中央値の線を描画（系列ごとのオプション）
+            if (series.showMeanLine || series.showMedianLine) {
+                const seriesMean = series.calculateMean();
+                const seriesMedian = series.calculateMedian();
+                const dataRange = plotArea.dataRange.max - plotArea.dataRange.min;
+                
+                if (series.showMeanLine && seriesMean !== null) {
+                    const xRatio = dataRange > 0 ? (seriesMean - plotArea.dataRange.min) / dataRange : 0;
+                    const x = plotArea.originX + xRatio * plotWidth;
+                    
+                    const meanLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    meanLine.setAttribute('x1', x);
+                    meanLine.setAttribute('y1', plotArea.originY);
+                    meanLine.setAttribute('x2', x);
+                    meanLine.setAttribute('y2', plotArea.topRightY);
+                    meanLine.setAttribute('stroke', series.meanLineColor);
+                    meanLine.setAttribute('stroke-width', series.meanLineWidth);
+                    
+                    // 線のスタイルを設定（平均値は短い破線パターン）
+                    if (series.meanLineStyle === 'dashed') {
+                        meanLine.setAttribute('stroke-dasharray', '5,5');
+                    } else if (series.meanLineStyle === 'dotted') {
+                        meanLine.setAttribute('stroke-dasharray', '2,2');
+                    }
+                    
+                    svg.appendChild(meanLine);
+                    
+                    // ラベル情報を追加
+                    const xAxisFormat = histogramChart.xAxisFormat || '#,##0';
+                    labelInfos.push({
+                        x: x,
+                        groupName: series.title,
+                        type: '平均値',
+                        value: seriesMean,
+                        formattedValue: this.formatNumber(seriesMean, xAxisFormat)
+                    });
+                }
+                
+                if (series.showMedianLine && seriesMedian !== null) {
+                    const xRatio = dataRange > 0 ? (seriesMedian - plotArea.dataRange.min) / dataRange : 0;
+                    const x = plotArea.originX + xRatio * plotWidth;
+                    
+                    const medianLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    medianLine.setAttribute('x1', x);
+                    medianLine.setAttribute('y1', plotArea.originY);
+                    medianLine.setAttribute('x2', x);
+                    medianLine.setAttribute('y2', plotArea.topRightY);
+                    medianLine.setAttribute('stroke', series.medianLineColor);
+                    medianLine.setAttribute('stroke-width', series.medianLineWidth);
+                    
+                    // 線のスタイルを設定（中央値は長い破線パターンで平均値と区別）
+                    if (series.medianLineStyle === 'dashed') {
+                        medianLine.setAttribute('stroke-dasharray', '10,5');
+                    } else if (series.medianLineStyle === 'dotted') {
+                        medianLine.setAttribute('stroke-dasharray', '2,2');
+                    }
+                    
+                    svg.appendChild(medianLine);
+                    
+                    // ラベル情報を追加
+                    const xAxisFormat = histogramChart.xAxisFormat || '#,##0';
+                    labelInfos.push({
+                        x: x,
+                        groupName: series.title,
+                        type: '中央値',
+                        value: seriesMedian,
+                        formattedValue: this.formatNumber(seriesMedian, xAxisFormat)
+                    });
+                }
+            }
+
+            // binDataMapを更新するために系列を渡す
+            const frequencies = histogramChart.binData(series.data, plotArea.bins, series);
             const maxFrequency = Math.max(...plotArea.yAxisScale.labels);
             const dataRange = plotArea.dataRange.max - plotArea.dataRange.min;
 
@@ -2961,10 +3258,302 @@ class ChartCanvas {
                     rect.setAttribute('opacity', series.opacity);
                     rect.setAttribute('stroke', series.color);
                     rect.setAttribute('stroke-width', 0.5);
+                    
+                    // クリックイベント用のデータ属性を設定
+                    rect.setAttribute('data-series-index', seriesIndex);
+                    rect.setAttribute('data-bin-index', i);
+                    
+                    // クリックイベントリスナーを追加
+                    if (histogramChart.onBinClick) {
+                        rect.style.cursor = 'pointer';
+                        rect.addEventListener('click', (event) => {
+                            const clickedSeriesIndex = parseInt(event.target.getAttribute('data-series-index'));
+                            const clickedBinIndex = parseInt(event.target.getAttribute('data-bin-index'));
+                            const clickedSeries = histogramChart.series[clickedSeriesIndex];
+                            const dataArray = clickedSeries.binDataMap.get(clickedBinIndex) || [];
+                            
+                            if (histogramChart.onBinClick) {
+                                histogramChart.onBinClick(dataArray, {
+                                    seriesIndex: clickedSeriesIndex,
+                                    seriesTitle: clickedSeries.title,
+                                    binIndex: clickedBinIndex,
+                                    binRange: { min: binMin, max: binMax }
+                                });
+                            }
+                        });
+                    }
+                    
+                    // ツールチップ用のマウスオーバーイベントを追加
+                    rect.style.cursor = 'pointer';
+                    // 各矩形ごとに独立したtooltipGroupを持つためにクロージャを使用
+                    (() => {
+                        let tooltipGroup = null;
+                        
+                        rect.addEventListener('mouseenter', (event) => {
+                            const hoveredSeriesIndex = parseInt(event.target.getAttribute('data-series-index'));
+                            const hoveredBinIndex = parseInt(event.target.getAttribute('data-bin-index'));
+                            const hoveredSeries = histogramChart.series[hoveredSeriesIndex];
+                            const dataArray = hoveredSeries.binDataMap.get(hoveredBinIndex) || [];
+                            
+                            // ツールチップを表示
+                            tooltipGroup = this.createHistogramTooltip(
+                                svg,
+                                x + barWidth / 2,
+                                y,
+                                binMin,
+                                binMax,
+                                dataArray,
+                                hoveredSeries.title,
+                                histogramChart.xAxisFormat || '#,##0'
+                            );
+                        });
+                        
+                        rect.addEventListener('mouseleave', () => {
+                            // ツールチップを削除
+                            if (tooltipGroup && tooltipGroup.parentNode) {
+                                tooltipGroup.parentNode.removeChild(tooltipGroup);
+                            }
+                            tooltipGroup = null;
+                        });
+                    })();
+                    
                     svg.appendChild(rect);
                 }
             }
+            seriesIndex++;
         }
+        
+        // ラベルを描画（すべての系列の描画が終わった後）
+        if (labelInfos.length > 0) {
+            this.renderHistogramLabels(svg, labelInfos, plotArea, plotWidth, plotHeight);
+        }
+    }
+    
+    /**
+     * ヒストグラムの平均値・中央値のラベルを描画
+     * @param {SVGElement} svg - SVG要素
+     * @param {Array<Object>} labelInfos - ラベル情報の配列 [{x, groupName, type, value, formattedValue}, ...]
+     * @param {Object} plotArea - 描画エリアの情報
+     * @param {number} plotWidth - 描画エリアの幅
+     * @param {number} plotHeight - 描画エリアの高さ
+     */
+    renderHistogramLabels(svg, labelInfos, plotArea, plotWidth, plotHeight) {
+        const fontSize = ChartCanvas.FONT_SIZE_SMALL;
+        const metrics = this.measureFontMetrics(fontSize);
+        const padding = 4;
+        const lineHeight = metrics.height;
+        
+        // 各ラベルのサイズを事前に計算
+        const labelSizes = labelInfos.map(labelInfo => {
+            const line1Text = labelInfo.groupName || '';
+            const line2Text = `${labelInfo.type}: ${labelInfo.formattedValue}`;
+            const line1Width = line1Text ? this.getTextWidth(line1Text, fontSize) : 0;
+            const line2Width = this.getTextWidth(line2Text, fontSize);
+            const textWidth = Math.max(line1Width, line2Width);
+            const textHeight = line1Text ? lineHeight * 2 : lineHeight;
+            const totalWidth = textWidth + padding * 2;
+            const totalHeight = textHeight + padding * 2;
+            
+            return {
+                labelInfo: labelInfo,
+                width: totalWidth,
+                height: totalHeight,
+                halfWidth: totalWidth / 2,
+                halfHeight: totalHeight / 2
+            };
+        });
+        
+        // Y軸の中間位置を基本位置とする
+        const baseY = plotArea.topRightY + plotHeight / 2;
+        
+        // X座標でソート
+        labelSizes.sort((a, b) => a.labelInfo.x - b.labelInfo.x);
+        
+        // 重なりを検出してY座標を調整
+        const labelPositions = [];
+        for (let i = 0; i < labelSizes.length; i++) {
+            const currentLabel = labelSizes[i];
+            let y = baseY;
+            let yOffset = 0;
+            
+            // 前のラベルとの重なりをチェック
+            for (let j = 0; j < i; j++) {
+                const prevLabel = labelPositions[j];
+                
+                // X座標の範囲を計算
+                const currentLeft = currentLabel.labelInfo.x - currentLabel.halfWidth;
+                const currentRight = currentLabel.labelInfo.x + currentLabel.halfWidth;
+                const prevLeft = prevLabel.x - prevLabel.halfWidth;
+                const prevRight = prevLabel.x + prevLabel.halfWidth;
+                
+                // X座標が重なっているかチェック
+                const xOverlap = !(currentRight < prevLeft || currentLeft > prevRight);
+                
+                if (xOverlap) {
+                    // X座標が重なっている場合、上下に分離
+                    if (prevLabel.yOffset === 0) {
+                        // 前のラベルが中央にある場合、上に配置
+                        y = baseY - prevLabel.halfHeight - currentLabel.halfHeight - padding;
+                        yOffset = -1;
+                    } else if (prevLabel.yOffset === -1) {
+                        // 前のラベルが上にある場合、下に配置
+                        y = baseY + prevLabel.halfHeight + currentLabel.halfHeight + padding;
+                        yOffset = 1;
+                    } else {
+                        // 前のラベルが下にある場合、上に配置
+                        y = baseY - prevLabel.halfHeight - currentLabel.halfHeight - padding;
+                        yOffset = -1;
+                    }
+                }
+            }
+            
+            labelPositions.push({
+                x: currentLabel.labelInfo.x,
+                y: y,
+                yOffset: yOffset,
+                halfWidth: currentLabel.halfWidth,
+                halfHeight: currentLabel.halfHeight,
+                labelInfo: currentLabel.labelInfo
+            });
+        }
+        
+        // ラベルを描画
+        for (const pos of labelPositions) {
+            const labelInfo = pos.labelInfo;
+            
+            // ラベルテキストを生成（2行に分ける）
+            const line1Text = labelInfo.groupName || ''; // 1行目: グループ名
+            const line2Text = `${labelInfo.type}: ${labelInfo.formattedValue}`; // 2行目: 平均値/中央値: 値
+            
+            // テキストの幅を計算（2行のうち広い方）
+            const line1Width = line1Text ? this.getTextWidth(line1Text, fontSize) : 0;
+            const line2Width = this.getTextWidth(line2Text, fontSize);
+            const textWidth = Math.max(line1Width, line2Width);
+            
+            // テキストの高さを計算（2行分）
+            const lineHeight = metrics.height;
+            const textHeight = line1Text ? lineHeight * 2 : lineHeight;
+            const padding = 4;
+            
+            // 背景の矩形を描画（可読性向上のため）
+            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect.setAttribute('x', pos.x - textWidth / 2 - padding);
+            rect.setAttribute('y', pos.y - textHeight / 2 - padding);
+            rect.setAttribute('width', textWidth + padding * 2);
+            rect.setAttribute('height', textHeight + padding * 2);
+            rect.setAttribute('fill', 'white');
+            rect.setAttribute('fill-opacity', '0.9');
+            rect.setAttribute('stroke', 'none');
+            svg.appendChild(rect);
+            
+            // 1行目（グループ名）を描画
+            if (line1Text) {
+                const text1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                text1.setAttribute('class', 'chart-text');
+                text1.setAttribute('x', pos.x);
+                text1.setAttribute('y', pos.y - lineHeight / 2);
+                text1.setAttribute('text-anchor', 'middle');
+                text1.setAttribute('dominant-baseline', 'middle');
+                text1.setAttribute('style', `font-size: ${fontSize}px;`);
+                text1.textContent = line1Text;
+                svg.appendChild(text1);
+            }
+            
+            // 2行目（平均値/中央値: 値）を描画
+            const text2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text2.setAttribute('class', 'chart-text');
+            text2.setAttribute('x', pos.x);
+            text2.setAttribute('y', pos.y + (line1Text ? lineHeight / 2 : 0));
+            text2.setAttribute('text-anchor', 'middle');
+            text2.setAttribute('dominant-baseline', 'middle');
+            text2.setAttribute('style', `font-size: ${fontSize}px;`);
+            text2.textContent = line2Text;
+            svg.appendChild(text2);
+        }
+    }
+    
+    /**
+     * ヒストグラムのビンのツールチップを作成
+     * @param {SVGElement} svg - SVG要素
+     * @param {number} x - ツールチップのX座標
+     * @param {number} y - ツールチップのY座標
+     * @param {number} binMin - ビンの最小値
+     * @param {number} binMax - ビンの最大値
+     * @param {Array<number>} dataArray - ビンに含まれるデータ値の配列
+     * @param {string} seriesTitle - 系列のタイトル
+     * @param {string} format - 数値のフォーマット
+     * @returns {SVGElement} ツールチップのグループ要素
+     */
+    createHistogramTooltip(svg, x, y, binMin, binMax, dataArray, seriesTitle, format) {
+        const fontSize = ChartCanvas.FONT_SIZE_SMALL;
+        const metrics = this.measureFontMetrics(fontSize);
+        const padding = 8;
+        const lineHeight = metrics.height + 2;
+        
+        // ツールチップのグループを作成
+        const tooltipGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        tooltipGroup.setAttribute('class', 'histogram-tooltip');
+        
+        // ツールチップのテキストを生成
+        const lines = [];
+        
+        // 1行目: 系列名（ある場合）
+        if (seriesTitle) {
+            lines.push(seriesTitle);
+        }
+        
+        // 2行目: ビンの範囲
+        const xAxisFormat = format || '#,##0';
+        const formattedMin = this.formatNumber(binMin, xAxisFormat);
+        const formattedMax = this.formatNumber(binMax, xAxisFormat);
+        lines.push(`範囲: ${formattedMin} - ${formattedMax}`);
+        
+        // 3行目: データの個数
+        lines.push(`件数: ${dataArray.length}`);
+        
+        // テキストの最大幅を計算
+        let maxWidth = 0;
+        for (const line of lines) {
+            const width = this.getTextWidth(line, fontSize);
+            if (width > maxWidth) {
+                maxWidth = width;
+            }
+        }
+        
+        const tooltipWidth = maxWidth + padding * 2;
+        const tooltipHeight = lines.length * lineHeight + padding * 2;
+        
+        // ツールチップの位置を調整（画面外に出ないように）
+        const tooltipX = Math.min(x, this.width - tooltipWidth - 10);
+        const tooltipY = Math.max(y - tooltipHeight - 10, 10);
+        
+        // 背景の矩形を描画
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', tooltipX);
+        rect.setAttribute('y', tooltipY);
+        rect.setAttribute('width', tooltipWidth);
+        rect.setAttribute('height', tooltipHeight);
+        rect.setAttribute('fill', 'white');
+        rect.setAttribute('fill-opacity', '0.95');
+        rect.setAttribute('stroke', 'black');
+        rect.setAttribute('stroke-width', '1');
+        rect.setAttribute('rx', '4');
+        rect.setAttribute('ry', '4');
+        tooltipGroup.appendChild(rect);
+        
+        // テキストを描画
+        for (let i = 0; i < lines.length; i++) {
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.setAttribute('class', 'chart-text');
+            text.setAttribute('x', tooltipX + padding);
+            text.setAttribute('y', tooltipY + padding + (i + 1) * lineHeight);
+            text.setAttribute('style', `font-size: ${fontSize}px;`);
+            text.textContent = lines[i];
+            tooltipGroup.appendChild(text);
+        }
+        
+        svg.appendChild(tooltipGroup);
+        return tooltipGroup;
     }
 
     /**
@@ -3074,14 +3663,21 @@ class ChartCanvas {
             svg.appendChild(xAxisTitleText);
         }
 
-        // Y軸のタイトルを描画
+        // Y軸のタイトルを描画（サブタイトルと同じ位置、横書き、Y軸の位置を中心とした中揃え）
         if (histogramChart.yAxisTitle) {
+            // サブタイトルのY座標を計算（render()メソッドと同じロジック）
+            const topMargin = 10;
+            let subtitleY = fontSize + topMargin;
+            if (this.title) {
+                subtitleY += fontSize + 5;
+            }
+            
             const yAxisTitleText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             yAxisTitleText.setAttribute('class', 'chart-text');
-            yAxisTitleText.setAttribute('x', plotArea.originX - tickLineLength - labelMargin - 30);
-            yAxisTitleText.setAttribute('y', plotArea.topRightY + plotHeight / 2);
+            // Y軸のX座標を中心に中揃え
+            yAxisTitleText.setAttribute('x', plotArea.originX);
+            yAxisTitleText.setAttribute('y', subtitleY);
             yAxisTitleText.setAttribute('text-anchor', 'middle');
-            yAxisTitleText.setAttribute('transform', `rotate(-90 ${plotArea.originX - tickLineLength - labelMargin - 30} ${plotArea.topRightY + plotHeight / 2})`);
             yAxisTitleText.setAttribute('style', `font-size: ${fontSize}px;`);
             yAxisTitleText.textContent = histogramChart.yAxisTitle;
             svg.appendChild(yAxisTitleText);
