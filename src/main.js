@@ -1897,10 +1897,15 @@ class ChartCanvas {
         this.renderHistogramGrid(svg, plotArea, plotWidth, plotHeight);
 
         // 各系列のヒストグラムを描画
+        let seriesIndex = 0;
         for (const series of histogramChart.series) {
-            if (series.data.length === 0) continue;
+            if (series.data.length === 0) {
+                seriesIndex++;
+                continue;
+            }
 
-            const frequencies = histogramChart.binData(series.data, plotArea.bins);
+            // binDataMapを更新するために系列を渡す
+            const frequencies = histogramChart.binData(series.data, plotArea.bins, series);
             const maxFrequency = Math.max(...plotArea.yAxisScale.labels);
             const dataRange = plotArea.dataRange.max - plotArea.dataRange.min;
 

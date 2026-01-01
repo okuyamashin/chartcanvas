@@ -888,14 +888,26 @@ class HistogramChart {
             }
         }
 
-        for (const value of data) {
+        // 全カラムのデータがある場合はそれを使用、ない場合は値の配列を使用
+        const hasRawData = series && series.rawData && series.rawData.length > 0;
+        const valueIndex = series && series.valueIndex !== undefined ? series.valueIndex : -1;
+
+        for (let dataIndex = 0; dataIndex < data.length; dataIndex++) {
+            const value = data[dataIndex];
+            
             // ビンに分類
             for (let i = 0; i < bins.length - 1; i++) {
                 if (value >= bins[i] && (i === bins.length - 2 ? value <= bins[i + 1] : value < bins[i + 1])) {
                     frequencies[i]++;
                     // 系列が指定されている場合、元のデータを記録
                     if (series) {
-                        series.binDataMap.get(i).push(value);
+                        if (hasRawData && dataIndex < series.rawData.length) {
+                            // 全カラムのデータを保存
+                            series.binDataMap.get(i).push(series.rawData[dataIndex]);
+                        } else {
+                            // 値のみを保存（後方互換性のため）
+                            series.binDataMap.get(i).push(value);
+                        }
                     }
                     break;
                 }
@@ -1016,7 +1028,18 @@ class HistogramSeries {
         this.color = options.color || 'blue';
         this.opacity = options.opacity !== undefined ? options.opacity : 0.7;
         this.data = []; // 生データの配列
+        this.rawData = []; // 全カラムのデータ（オブジェクトの配列、通常モードの場合）
         this.binDataMap = new Map(); // ビンインデックス -> 元のデータ配列のマッピング
+        
+        // lazyLoad用のプロパティ
+        this.lazyLoad = false; // lazyLoadモードかどうか
+        this.tsvLoader = null; // HistogramTSVLoaderへの参照
+        this.tsvUrl = ''; // TSVファイルのURL
+        this.valueIndex = -1; // 値列のインデックス
+        this.groupIndex = -1; // グループ列のインデックス（-1の場合はグループなし）
+        this.groupName = ''; // グループ名（グループ別ヒストグラムの場合）
+        this.totalDataCount = 0; // 全データ件数（lazyLoadモードの場合）
+        this.headers = []; // TSVファイルのヘッダー行（全カラム情報）
         
         // 系列ごとの補助線の設定
         this.showMeanLine = options.showMeanLine || false; // 平均線を表示するか（デフォルト: false）
@@ -1094,6 +1117,8 @@ class HistogramTSVLoader {
         this.url = url;
         this.valueTitle = ''; // 値列の列名
         this.groupTitle = ''; // グループ列の列名（提案3対応用、後で実装）
+        this.dataThreshold = 10000; // データ件数の閾値（この値を超えるとlazyLoadモード）
+        this.headers = []; // TSVファイルのヘッダー行（全カラム情報）
         
         // 自動モード用の設定
         this.autoMode = false;
@@ -1124,6 +1149,7 @@ class HistogramTSVLoader {
 
         // ヘッダー行を解析
         const headers = lines[0].split('\t');
+        this.headers = headers; // ヘッダー情報を保存
         const valueIndex = headers.indexOf(this.valueTitle);
         
         if (valueIndex === -1) {
@@ -1133,26 +1159,82 @@ class HistogramTSVLoader {
         // グループ列のインデックスを取得（提案3対応用、後で実装）
         const groupIndex = this.groupTitle ? headers.indexOf(this.groupTitle) : -1;
 
+        // データ件数をカウント（数値として有効な行のみ）
+        let dataCount = 0;
+        for (let i = 1; i < lines.length; i++) {
+            const columns = lines[i].split('\t');
+            if (columns.length <= valueIndex) {
+                continue;
+            }
+            const valueStr = columns[valueIndex].trim();
+            const value = parseFloat(valueStr);
+            if (!isNaN(value)) {
+                if (groupIndex === -1) {
+                    dataCount++;
+                } else {
+                    const groupName = columns[groupIndex]?.trim() || '';
+                    if (groupName) {
+                        dataCount++;
+                    }
+                }
+            }
+        }
+
+        // データ件数が閾値を超える場合はlazyLoadモード
+        const useLazyLoad = dataCount > this.dataThreshold;
+
         // 提案1: 生データ形式（グループ列がない場合）
         if (groupIndex === -1) {
-            // 単一の系列にすべてのデータを追加
+            // 単一の系列を作成
             const series = this.histogramChart.addSeries({
                 title: this.histogramChart.title || 'データ',
                 color: this.seriesColors[0],
                 opacity: 0.7
             });
 
-            // データ行を解析
-            for (let i = 1; i < lines.length; i++) {
-                const columns = lines[i].split('\t');
-                if (columns.length <= valueIndex) {
-                    continue;
+            if (useLazyLoad) {
+                // lazyLoadモード: メタデータだけを保存
+                series.lazyLoad = true;
+                series.tsvLoader = this;
+                series.tsvUrl = this.url;
+                series.valueIndex = valueIndex;
+                series.groupIndex = -1;
+                series.totalDataCount = dataCount;
+                series.headers = headers; // ヘッダー情報を保存
+                // データは保持しない（ヒストグラムの描画には統計情報だけが必要）
+                // 統計情報を計算するために、サンプルデータを読み込む（最初の1000件）
+                const sampleSize = Math.min(1000, lines.length - 1);
+                for (let i = 1; i <= sampleSize; i++) {
+                    const columns = lines[i].split('\t');
+                    if (columns.length <= valueIndex) {
+                        continue;
+                    }
+                    const valueStr = columns[valueIndex].trim();
+                    const value = parseFloat(valueStr);
+                    if (!isNaN(value)) {
+                        series.addData(value);
+                    }
                 }
+            } else {
+                // 通常モード: 全データを読み込む
+                series.headers = headers; // ヘッダー情報を保存
+                for (let i = 1; i < lines.length; i++) {
+                    const columns = lines[i].split('\t');
+                    if (columns.length <= valueIndex) {
+                        continue;
+                    }
 
-                const valueStr = columns[valueIndex].trim();
-                const value = parseFloat(valueStr);
-                if (!isNaN(value)) {
-                    series.addData(value);
+                    const valueStr = columns[valueIndex].trim();
+                    const value = parseFloat(valueStr);
+                    if (!isNaN(value)) {
+                        series.addData(value);
+                        // 全カラムのデータを保存
+                        const rowData = {};
+                        headers.forEach((header, index) => {
+                            rowData[header] = columns[index]?.trim() || '';
+                        });
+                        series.rawData.push(rowData);
+                    }
                 }
             }
 
@@ -1200,13 +1282,115 @@ class HistogramTSVLoader {
                 opacity: 0.7
             });
 
-            // データを追加
-            for (const value of values) {
-                series.addData(value);
+            if (useLazyLoad) {
+                // lazyLoadモード: メタデータだけを保存
+                series.lazyLoad = true;
+                series.tsvLoader = this;
+                series.tsvUrl = this.url;
+                series.valueIndex = valueIndex;
+                series.groupIndex = groupIndex;
+                series.groupName = groupName;
+                series.totalDataCount = values.length;
+                series.headers = headers; // ヘッダー情報を保存
+                // サンプルデータを読み込む（最初の1000件）
+                const sampleSize = Math.min(1000, values.length);
+                for (let i = 0; i < sampleSize; i++) {
+                    series.addData(values[i]);
+                }
+            } else {
+                // 通常モード: 全データを読み込む
+                series.headers = headers; // ヘッダー情報を保存
+                // グループ別ヒストグラムの場合、全カラムのデータを再読み込み
+                for (let i = 1; i < lines.length; i++) {
+                    const columns = lines[i].split('\t');
+                    if (columns.length <= valueIndex) {
+                        continue;
+                    }
+
+                    const valueStr = columns[valueIndex].trim();
+                    const value = parseFloat(valueStr);
+                    if (isNaN(value)) {
+                        continue;
+                    }
+
+                    const rowGroupName = columns[groupIndex]?.trim() || '';
+                    if (rowGroupName !== groupName) {
+                        continue;
+                    }
+
+                    series.addData(value);
+                    // 全カラムのデータを保存
+                    const rowData = {};
+                    headers.forEach((header, index) => {
+                        rowData[header] = columns[index]?.trim() || '';
+                    });
+                    series.rawData.push(rowData);
+                }
             }
 
             colorIndex++;
         }
+    }
+
+    /**
+     * 指定された範囲のデータを読み込む（lazyLoadモード用）
+     * @param {number} minValue - 最小値
+     * @param {number} maxValue - 最大値
+     * @param {HistogramSeries} series - 系列
+     * @returns {Promise<Array<Object>>} 該当するデータのオブジェクト配列（全カラムを含む）
+     */
+    async loadDataInRange(minValue, maxValue, series) {
+        // TSVファイルを読み込む
+        const response = await fetch(this.url);
+        if (!response.ok) {
+            throw new Error(`Failed to load TSV file: ${response.status} ${response.statusText}`);
+        }
+
+        const text = await response.text();
+        const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+
+        if (lines.length === 0) {
+            return [];
+        }
+
+        const result = [];
+        const valueIndex = series.valueIndex;
+        const groupIndex = series.groupIndex;
+        const headers = series.headers || this.headers;
+
+        // データ行を解析
+        for (let i = 1; i < lines.length; i++) {
+            const columns = lines[i].split('\t');
+            if (columns.length <= valueIndex) {
+                continue;
+            }
+
+            // グループ別ヒストグラムの場合、グループ名をチェック
+            if (groupIndex !== -1) {
+                const groupName = columns[groupIndex]?.trim() || '';
+                if (groupName !== series.groupName) {
+                    continue;
+                }
+            }
+
+            const valueStr = columns[valueIndex].trim();
+            const value = parseFloat(valueStr);
+            if (isNaN(value)) {
+                continue;
+            }
+
+            // 範囲内のデータのみを追加
+            if (value >= minValue && value <= maxValue) {
+                // 全カラムを含むオブジェクトを作成
+                const rowData = {};
+                headers.forEach((header, index) => {
+                    rowData[header] = columns[index]?.trim() || '';
+                });
+                result.push(rowData);
+            }
+        }
+
+        return result;
     }
 }
 
@@ -3262,22 +3446,53 @@ class ChartCanvas {
                     // クリックイベント用のデータ属性を設定
                     rect.setAttribute('data-series-index', seriesIndex);
                     rect.setAttribute('data-bin-index', i);
+                    rect.setAttribute('data-bin-min', binMin);
+                    rect.setAttribute('data-bin-max', binMax);
                     
                     // クリックイベントリスナーを追加
                     if (histogramChart.onBinClick) {
                         rect.style.cursor = 'pointer';
-                        rect.addEventListener('click', (event) => {
+                        rect.addEventListener('click', async (event) => {
                             const clickedSeriesIndex = parseInt(event.target.getAttribute('data-series-index'));
                             const clickedBinIndex = parseInt(event.target.getAttribute('data-bin-index'));
+                            const clickedBinMin = parseFloat(event.target.getAttribute('data-bin-min'));
+                            const clickedBinMax = parseFloat(event.target.getAttribute('data-bin-max'));
                             const clickedSeries = histogramChart.series[clickedSeriesIndex];
-                            const dataArray = clickedSeries.binDataMap.get(clickedBinIndex) || [];
+                            
+                            let dataArray = [];
+                            
+                            // lazyLoadモードの場合は再ロード
+                            if (clickedSeries.lazyLoad && clickedSeries.tsvLoader) {
+                                try {
+                                    dataArray = await clickedSeries.tsvLoader.loadDataInRange(clickedBinMin, clickedBinMax, clickedSeries);
+                                } catch (error) {
+                                    console.error('データの読み込みエラー:', error);
+                                    dataArray = [];
+                                }
+                            } else {
+                                // 通常モード: binDataMapから取得
+                                const binData = clickedSeries.binDataMap.get(clickedBinIndex) || [];
+                                // binDataMapにはオブジェクトまたは値が含まれている可能性がある
+                                // オブジェクトの場合はそのまま、値の場合は後方互換性のためオブジェクトに変換
+                                dataArray = binData.map(item => {
+                                    if (typeof item === 'object' && item !== null) {
+                                        return item; // 既にオブジェクト
+                                    } else {
+                                        // 値のみの場合は、値列のヘッダー名を使ってオブジェクトに変換
+                                        const valueTitle = clickedSeries.tsvLoader ? clickedSeries.tsvLoader.valueTitle : '値';
+                                        const obj = {};
+                                        obj[valueTitle] = item;
+                                        return obj;
+                                    }
+                                });
+                            }
                             
                             if (histogramChart.onBinClick) {
                                 histogramChart.onBinClick(dataArray, {
                                     seriesIndex: clickedSeriesIndex,
                                     seriesTitle: clickedSeries.title,
                                     binIndex: clickedBinIndex,
-                                    binRange: { min: binMin, max: binMax }
+                                    binRange: { min: clickedBinMin, max: clickedBinMax }
                                 });
                             }
                         });
