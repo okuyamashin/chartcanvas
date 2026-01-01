@@ -153,8 +153,8 @@ function validateConfig(config) {
 
     const chartType = config.chartType;
     
-    if (!['dateChart', 'groupDateChart', 'histogram'].includes(chartType)) {
-        throw new Error(`Error: Invalid chartType: ${chartType}. Must be one of: dateChart, groupDateChart, histogram`);
+    if (!['dateChart', 'groupDateChart', 'histogram', 'pieChart'].includes(chartType)) {
+        throw new Error(`Error: Invalid chartType: ${chartType}. Must be one of: dateChart, groupDateChart, histogram, pieChart`);
     }
 
     if (!config.tsv) {
@@ -184,6 +184,15 @@ function validateConfig(config) {
     }
 
     if (chartType === 'histogram') {
+        if (!config.tsv.valueTitle) {
+            throw new Error('Error: Required field missing: tsv.valueTitle');
+        }
+    }
+
+    if (chartType === 'pieChart') {
+        if (!config.tsv.categoryTitle) {
+            throw new Error('Error: Required field missing: tsv.categoryTitle');
+        }
         if (!config.tsv.valueTitle) {
             throw new Error('Error: Required field missing: tsv.valueTitle');
         }
@@ -568,6 +577,49 @@ async function generateSVG(config, tsvData) {
                     series.addData(value);
                 }
             }
+            
+            // レンダリング
+            chart.render();
+            
+        } else if (config.chartType === 'pieChart') {
+            // pieChartタイプの実装
+            const PieChart = sandbox.window.PieChart || sandbox.PieChart;
+            const PieTsvLoader = sandbox.window.PieTsvLoader || sandbox.PieTsvLoader;
+            
+            const pieChart = chart.addPieChart();
+            
+            // pieChartの設定を適用
+            if (config.pieChart) {
+                if (config.pieChart.title) pieChart.title = config.pieChart.title;
+                if (config.pieChart.subtitle) pieChart.subtitle = config.pieChart.subtitle;
+                if (config.pieChart.labelFormat) pieChart.setLabelFormat(config.pieChart.labelFormat);
+                if (config.pieChart.labelPosition) pieChart.setLabelPosition(config.pieChart.labelPosition);
+                if (config.pieChart.labelThreshold !== undefined) pieChart.setLabelThreshold(config.pieChart.labelThreshold);
+                if (config.pieChart.legendVisible !== undefined) pieChart.setLegendVisible(config.pieChart.legendVisible);
+            }
+            
+            // TSVデータを読み込む
+            const categoryTitle = config.tsv.categoryTitle;
+            const valueTitle = config.tsv.valueTitle;
+            
+            const data = [];
+            const labels = [];
+            
+            for (const row of parsedTSV.rows) {
+                const category = row[categoryTitle];
+                const valueStr = row[valueTitle];
+                
+                if (!category || !valueStr) continue;
+                
+                const value = parseFloat(valueStr);
+                if (isNaN(value) || value < 0) continue;
+                
+                data.push(value);
+                labels.push(category);
+            }
+            
+            // データを設定（setData内でソートされる）
+            pieChart.setData(data, labels);
             
             // レンダリング
             chart.render();

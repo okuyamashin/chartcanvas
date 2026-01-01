@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>円グラフサンプル（単一）</title>
+    <script src="../../chartcanvas.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        #chart_div {
+            border: 1px solid #ccc;
+            margin: 20px 0;
+        }
+        .controls {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f5f5f5;
+            border-radius: 5px;
+        }
+        .controls label {
+            display: inline-block;
+            margin-right: 15px;
+            font-weight: bold;
+        }
+        .controls select {
+            padding: 5px 10px;
+            margin-right: 20px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+        }
+        .controls button {
+            padding: 5px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .controls button:hover {
+            background-color: #45a049;
+        }
+        .info {
+            margin: 20px 0;
+            padding: 10px;
+            background-color: #e7f3ff;
+            border-left: 4px solid #2196F3;
+        }
+    </style>
+</head>
+<body>
+    <h1>円グラフサンプル（単一）</h1>
+    <p>TSVファイルからデータを読み込んで、単一の円グラフを表示します。ラベルの表示形式と配置方法を変更できます。</p>
+    
+    <div class="info">
+        <strong>ラベルの表示について:</strong><br>
+        ラベルの表示形式や配置方法を変更すると、円グラフのサイズや位置が自動的に調整されます。
+        特に引出線（リーダーライン）を使用する場合、ラベルが円グラフの外側に配置されるため、
+        円グラフの描画領域が広くなり、円自体のサイズが調整されることがあります。
+    </div>
+    
+    <div class="controls">
+        <label for="labelFormat">ラベル表示形式:</label>
+        <select id="labelFormat">
+            <option value="category">カテゴリ名のみ</option>
+            <option value="percentage">パーセンテージのみ</option>
+            <option value="value">値のみ</option>
+            <option value="category-percentage" selected>カテゴリ名とパーセンテージ（デフォルト）</option>
+            <option value="category-value">カテゴリ名と値</option>
+            <option value="category-value-percentage">カテゴリ名、値、パーセンテージ</option>
+        </select>
+        
+        <label for="labelPosition">ラベル配置方法:</label>
+        <select id="labelPosition">
+            <option value="auto" selected>自動選択（デフォルト）</option>
+            <option value="arc-center">外縁の円弧の中心</option>
+            <option value="leader-line">引出線（リーダーライン）</option>
+        </select>
+        
+        <button onclick="updateChart()">グラフを更新</button>
+    </div>
+    
+    <div id="chart_div"></div>
+
+    <script>
+        let chart = null;
+        let pieChart = null;
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            await initializeChart();
+        });
+
+        async function initializeChart() {
+            const chart_div = document.getElementById('chart_div');
+            chart = new ChartCanvas(chart_div);
+            chart.size(800, 600);
+            chart.title = '商品別売上構成比';
+            chart.subtitle = '2024年度';
+
+            pieChart = chart.addPieChart();
+            pieChart.title = '商品別売上構成比';
+            pieChart.subtitle = '2024年度';
+
+            // 初期設定を適用
+            applySettings();
+
+            // TSVローダーを使用してデータを読み込む
+            const loader = pieChart.tsvLoader('./data-pie.tsv');
+            loader.categoryTitle = 'カテゴリ名';
+            loader.valueTitle = '値';
+
+            try {
+                await loader.load();
+                chart.render();
+            } catch (error) {
+                console.error('TSVファイルの読み込みエラー:', error);
+                chart.render();
+            }
+        }
+
+        function applySettings() {
+            if (!pieChart) return;
+
+            const labelFormat = document.getElementById('labelFormat').value;
+            const labelPosition = document.getElementById('labelPosition').value;
+
+            // ラベルの表示形式を設定
+            if (pieChart.setLabelFormat) {
+                pieChart.setLabelFormat(labelFormat);
+            } else {
+                // APIが実装されていない場合の代替処理
+                pieChart.labelFormat = labelFormat;
+            }
+
+            // ラベルの配置方法を設定
+            if (pieChart.setLabelPosition) {
+                pieChart.setLabelPosition(labelPosition);
+            } else {
+                // APIが実装されていない場合の代替処理
+                pieChart.labelPosition = labelPosition;
+            }
+        }
+
+        async function updateChart() {
+            if (!chart || !pieChart) return;
+
+            // 設定を適用
+            applySettings();
+
+            // グラフを再描画
+            // ラベルの表示方法が変わると、円グラフのサイズや位置が調整される可能性がある
+            chart.render();
+        }
+    </script>
+</body>
+</html>
+

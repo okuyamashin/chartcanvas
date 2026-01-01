@@ -11,6 +11,7 @@ const path = require('path');
 // ファイルパス
 const dateChartPath = path.join(__dirname, 'src', 'datechart.js');
 const histogramChartPath = path.join(__dirname, 'src', 'histogramChart.js');
+const pieChartPath = path.join(__dirname, 'src', 'pieChart.js');
 const mainPath = path.join(__dirname, 'src', 'main.js');
 const outputPath = path.join(__dirname, 'chartcanvas.js');
 
@@ -73,6 +74,7 @@ function build() {
     // ファイルを読み込む
     const dateChartContent = readFile(actualDateChartPath);
     const histogramChartContent = readFile(histogramChartPath);
+    const pieChartContent = readFile(pieChartPath);
     const mainContent = readFile(mainPath);
     
     // デバッグ: 読み込んだファイルの内容を確認
@@ -95,6 +97,12 @@ function build() {
         ''
     ).trim();
     
+    // pieChart.jsからグローバルスコープへの公開部分を削除
+    const pieChartWithoutExport = pieChartContent.replace(
+        /\/\/ グローバルスコープに公開[\s\S]*$/,
+        ''
+    ).trim();
+    
     // main.jsからグローバルスコープへの公開部分を取得
     const mainExportMatch = mainContent.match(/\/\/ グローバルスコープに公開[\s\S]*$/);
     const mainExport = mainExportMatch ? mainExportMatch[0] : '';
@@ -106,10 +114,11 @@ function build() {
     ).trim();
     
     // 統合ファイルの内容を構築
-    // 順序: DateChart関連クラス → HistogramChart関連クラス → ChartCanvasクラス → グローバルスコープへの公開
+    // 順序: DateChart関連クラス → HistogramChart関連クラス → PieChart関連クラス → ChartCanvasクラス → グローバルスコープへの公開
     const integratedContent = headerComment +
         dateChartWithoutExport + '\n\n' +
         histogramChartWithoutExport + '\n\n' +
+        pieChartWithoutExport + '\n\n' +
         mainWithoutExport + '\n\n' +
         '// グローバルスコープに公開\n' +
         'window.ChartCanvas = ChartCanvas;\n' +
@@ -120,7 +129,9 @@ function build() {
         'window.normalizeDate = normalizeDate;\n' +
         'window.HistogramChart = HistogramChart;\n' +
         'window.HistogramSeries = HistogramSeries;\n' +
-        'window.HistogramTSVLoader = HistogramTSVLoader;\n';
+        'window.HistogramTSVLoader = HistogramTSVLoader;\n' +
+        'window.PieChart = PieChart;\n' +
+        'window.PieTsvLoader = PieTsvLoader;\n';
     
     // ファイルを書き込む
     writeFile(outputPath, integratedContent);

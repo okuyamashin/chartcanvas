@@ -186,6 +186,19 @@ class ChartCanvas {
     }
 
     /**
+     * 円グラフチャートを追加
+     * @returns {PieChart} PieChartインスタンス
+     */
+    addPieChart() {
+        const pieChart = new PieChart(this);
+        if (!this.pieCharts) {
+            this.pieCharts = [];
+        }
+        this.pieCharts.push(pieChart);
+        return pieChart;
+    }
+
+    /**
      * グラフのサイズを設定
      * @param {number} width - 幅（デフォルト: 1024）
      * @param {number} height - 高さ（デフォルト: 600）
@@ -261,8 +274,11 @@ class ChartCanvas {
         // 凡例を描画
         this.renderLegend(svg);
 
-        // ヒストグラムがある場合はヒストグラムを描画
-        if (this.histogramCharts && this.histogramCharts.length > 0) {
+        // 円グラフがある場合は円グラフを描画
+        if (this.pieCharts && this.pieCharts.length > 0) {
+            this.renderPieCharts(svg);
+        } else if (this.histogramCharts && this.histogramCharts.length > 0) {
+            // ヒストグラムがある場合はヒストグラムを描画
             const plotArea = this.calculateHistogramPlotArea();
             this.renderHistogram(svg, plotArea);
         } else {
@@ -2231,6 +2247,295 @@ class ChartCanvas {
             labelText.setAttribute('class', 'chart-text');
             labelText.setAttribute('x', labelX);
             labelText.setAttribute('y', labelY);
+            labelText.setAttribute('style', `font-size: ${legendFontSize}px;`);
+            labelText.textContent = item.title;
+            svg.appendChild(labelText);
+
+            currentY += legendItemHeight;
+        }
+    }
+
+    /**
+     * 円グラフを描画
+     * @param {SVGElement} svg - SVG要素
+     */
+    renderPieCharts(svg) {
+        if (!this.pieCharts || this.pieCharts.length === 0) {
+            return;
+        }
+
+        // 単一の円グラフの場合
+        if (this.pieCharts.length === 1) {
+            const pieChart = this.pieCharts[0];
+            this.renderSinglePieChart(svg, pieChart);
+        } else {
+            // 複数の円グラフを並べる場合（将来の拡張）
+            // 現在は単一の円グラフのみ対応
+            const pieChart = this.pieCharts[0];
+            this.renderSinglePieChart(svg, pieChart);
+        }
+    }
+
+    /**
+     * 単一の円グラフを描画
+     * @param {SVGElement} svg - SVG要素
+     * @param {PieChart} pieChart - PieChartインスタンス
+     */
+    renderSinglePieChart(svg, pieChart) {
+        if (!pieChart.data || pieChart.data.length === 0) {
+            return;
+        }
+
+        const fontSize = ChartCanvas.FONT_SIZE_NORMAL;
+        const metrics = this.measureFontMetrics(fontSize);
+        
+        // タイトルとサブタイトルの高さを計算
+        let titleHeight = 0;
+        if (pieChart.title) {
+            titleHeight += fontSize + 5;
+        }
+        if (pieChart.subtitle) {
+            titleHeight += fontSize + 5;
+        }
+        
+        // 円グラフの描画領域を計算
+        const margin = 40;
+        const centerX = this.width / 2;
+        const availableHeight = this.height - titleHeight - margin * 2;
+        const availableWidth = this.width - margin * 2;
+        
+        // ラベルの表示方法に応じて円グラフのサイズを調整
+        const labelPadding = 80; // ラベルのための余白
+        const maxRadius = Math.min(availableWidth / 2 - labelPadding, availableHeight / 2 - labelPadding);
+        const radius = Math.max(50, maxRadius); // 最小半径50px
+        
+        // 円グラフの中心座標
+        const centerY = titleHeight + margin + (availableHeight / 2);
+        
+        // 350度付近のラベル衝突を解決（小さいカテゴリを「その他」にまとめる）
+        const collisionResult = pieChart.resolve350DegreeCollisions(
+            centerX,
+            centerY,
+            radius,
+            fontSize,
+            this.getTextWidth.bind(this),
+            10,  // 最大繰り返し回数
+            'その他',  // 「その他」のラベル
+            20   // 350度付近の角度範囲（20度）
+        );
+        
+        if (collisionResult.iterations > 0) {
+            console.log(`350度付近の衝突を解決: ${collisionResult.iterations}回の繰り返しで${collisionResult.success ? '成功' : '部分的な解決'}`);
+        }
+        
+        // 180度付近（真南）のラベル衝突を解決（右側のラベルを右にずらす）
+        const collision180Result = pieChart.resolve180DegreeCollisions(
+            centerX,
+            centerY,
+            radius,
+            fontSize,
+            this.getTextWidth.bind(this),
+            20,  // 最大繰り返し回数
+            30,  // 180度付近の角度範囲（30度）
+            2    // 1回の調整でずらす角度（2度）
+        );
+        
+        if (collision180Result.iterations > 0) {
+            console.log(`180度付近の衝突を解決: ${collision180Result.iterations}回の繰り返しで${collision180Result.success ? '成功' : '部分的な解決'}`);
+        }
+        
+        // セグメントの角度を再計算（衝突解決後のデータで）
+        const segmentAngles = pieChart.getSegmentAngles();
+        
+        // まず、すべての円弧を描画
+        for (let i = 0; i < segmentAngles.length; i++) {
+            const segment = segmentAngles[i];
+            
+            // SVGの座標系ではY軸が下向きなので、角度を調整
+            // 真北（0度）から時計回りに開始するため、-90度オフセットを適用
+            const startAngleDeg = segment.startAngle;
+            const endAngleDeg = segment.endAngle;
+            
+            // 度をラジアンに変換（SVG座標系用に調整：真北を0度として時計回り）
+            const startAngleRad = ((startAngleDeg - 90) * Math.PI) / 180;
+            const endAngleRad = ((endAngleDeg - 90) * Math.PI) / 180;
+            
+            // 色を取得（「その他」カテゴリはグレー、それ以外はモノクロームを除く色）
+            let color;
+            const label = pieChart.labels[i];
+            const isOthers = label === 'その他' || label === 'Others';
+            
+            if (isOthers) {
+                // 「その他」カテゴリはグレー
+                color = '#808080'; // グレー
+            } else {
+                // それ以外はモノクロームを除く色を使用
+                color = pieChart.colors[i % pieChart.colors.length];
+            }
+            
+            // 開始点と終了点の座標を計算
+            const startX = centerX + radius * Math.cos(startAngleRad);
+            const startY = centerY + radius * Math.sin(startAngleRad);
+            const endX = centerX + radius * Math.cos(endAngleRad);
+            const endY = centerY + radius * Math.sin(endAngleRad);
+            
+            // 円弧の角度差を計算
+            let angleDiff = endAngleDeg - startAngleDeg;
+            if (angleDiff < 0) {
+                angleDiff += 360;
+            }
+            
+            // 大きな円弧かどうかを判定（180度を超える場合）
+            const largeArcFlag = angleDiff > 180 ? 1 : 0;
+            
+            // SVGパスを生成
+            // M: 中心点に移動
+            // L: 開始点まで線を引く
+            // A: 円弧を描く（半径、半径、回転、大きな円弧フラグ、時計回り、終了点）
+            // Z: パスを閉じる（中心点に戻る）
+            const pathData = `M ${centerX} ${centerY} L ${startX} ${startY} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${endX} ${endY} Z`;
+            
+            // パス要素を作成
+            const path = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', pathData);
+            path.setAttribute('fill', color);
+            path.setAttribute('stroke', '#fff');
+            path.setAttribute('stroke-width', '2');
+            svg.appendChild(path);
+        }
+        
+        // 次に、すべてのラベルを描画（円弧の上に表示されるように）
+        for (let i = 0; i < segmentAngles.length; i++) {
+            const segment = segmentAngles[i];
+            
+            // ラベルを描画
+            const labelPosition = pieChart.determineLabelPosition(i);
+            if (labelPosition === 'arc-center') {
+                // 外縁の円弧の中心にラベルを配置（角度オフセットを適用）
+                let midAngleDeg = (segment.startAngle + segment.endAngle) / 2;
+                const angleOffset = pieChart.labelAngleOffsets[i] || 0;
+                midAngleDeg += angleOffset; // 角度オフセットを適用
+                const midAngleRad = ((midAngleDeg - 90) * Math.PI) / 180; // SVG座標系用に調整
+                const labelRadius = radius + 20; // 円の外側に配置
+                const labelX = centerX + labelRadius * Math.cos(midAngleRad);
+                const labelY = centerY + labelRadius * Math.sin(midAngleRad);
+                
+                const labelText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
+                labelText.setAttribute('class', 'chart-text');
+                labelText.setAttribute('x', labelX);
+                labelText.setAttribute('y', labelY);
+                labelText.setAttribute('text-anchor', 'middle');
+                labelText.setAttribute('dominant-baseline', 'middle');
+                labelText.setAttribute('style', `font-size: ${fontSize}px;`);
+                labelText.textContent = pieChart.getLabelText(i);
+                svg.appendChild(labelText);
+            } else if (labelPosition === 'leader-line') {
+                // 引出線（リーダーライン）を出すタイプ（角度オフセットを適用）
+                let midAngleDeg = (segment.startAngle + segment.endAngle) / 2;
+                const angleOffset = pieChart.labelAngleOffsets[i] || 0;
+                midAngleDeg += angleOffset; // 角度オフセットを適用
+                const midAngleRad = ((midAngleDeg - 90) * Math.PI) / 180; // SVG座標系用に調整
+                const labelRadius = radius + 30; // 円の外側に配置
+                const labelX = centerX + labelRadius * Math.cos(midAngleRad);
+                const labelY = centerY + labelRadius * Math.sin(midAngleRad);
+                
+                // 引出線を描画
+                const lineStartX = centerX + radius * Math.cos(midAngleRad);
+                const lineStartY = centerY + radius * Math.sin(midAngleRad);
+                const lineEndX = labelX;
+                const lineEndY = labelY;
+                
+                const line = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', lineStartX);
+                line.setAttribute('y1', lineStartY);
+                line.setAttribute('x2', lineEndX);
+                line.setAttribute('y2', lineEndY);
+                line.setAttribute('stroke', '#333');
+                line.setAttribute('stroke-width', '1');
+                svg.appendChild(line);
+                
+                // ラベルを描画
+                const labelText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
+                labelText.setAttribute('class', 'chart-text');
+                labelText.setAttribute('x', labelX);
+                labelText.setAttribute('y', labelY);
+                labelText.setAttribute('text-anchor', 'middle');
+                labelText.setAttribute('dominant-baseline', 'middle');
+                labelText.setAttribute('style', `font-size: ${fontSize}px;`);
+                labelText.textContent = pieChart.getLabelText(i);
+                svg.appendChild(labelText);
+            }
+        }
+        
+        // 凡例は描画しない（ラベルで情報を表示するため）
+    }
+
+    /**
+     * 円グラフの凡例を描画
+     * @param {SVGElement} svg - SVG要素
+     * @param {PieChart} pieChart - PieChartインスタンス
+     */
+    renderPieChartLegend(svg, pieChart) {
+        const legendFontSize = ChartCanvas.FONT_SIZE_NORMAL;
+        const legendMargin = 20;
+        const legendStartY = this.height - 100; // 下から100px上に配置
+        const legendItemHeight = 25;
+        const iconWidth = 20;
+        const iconHeight = 12;
+        const iconLabelGap = 10;
+        const legendPadding = 10;
+
+        // 凡例項目を収集
+        const legendItems = [];
+        for (let i = 0; i < pieChart.labels.length; i++) {
+            legendItems.push({
+                title: pieChart.labels[i],
+                color: pieChart.colors[i % pieChart.colors.length]
+            });
+        }
+
+        if (legendItems.length === 0) {
+            return;
+        }
+
+        // 最大のラベル幅を計算
+        let maxLabelWidth = 0;
+        for (const item of legendItems) {
+            const labelWidth = this.getTextWidth(item.title, legendFontSize);
+            if (labelWidth > maxLabelWidth) {
+                maxLabelWidth = labelWidth;
+            }
+        }
+
+        // 凡例エリアのサイズを計算
+        const legendAreaWidth = iconWidth + iconLabelGap + maxLabelWidth + legendPadding * 2;
+        const legendAreaX = (this.width - legendAreaWidth) / 2; // 中央に配置
+        const legendX = legendAreaX + legendPadding;
+
+        // 凡例項目を描画
+        let currentY = legendStartY;
+        for (const item of legendItems) {
+            const iconX = legendX;
+            const iconY = currentY - iconHeight / 2;
+
+            // 円グラフのアイコンを描画（小さな円）
+            const circle = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('cx', iconX + iconWidth / 2);
+            circle.setAttribute('cy', iconY + iconHeight / 2);
+            circle.setAttribute('r', iconHeight / 2);
+            circle.setAttribute('fill', item.color);
+            circle.setAttribute('stroke', '#fff');
+            circle.setAttribute('stroke-width', '1');
+            svg.appendChild(circle);
+
+            // ラベルを描画
+            const labelX = iconX + iconWidth + iconLabelGap;
+            const labelY = currentY;
+            const labelText = VirtualDOM.createElementNS('http://www.w3.org/2000/svg', 'text');
+            labelText.setAttribute('class', 'chart-text');
+            labelText.setAttribute('x', labelX);
+            labelText.setAttribute('y', labelY);
+            labelText.setAttribute('dominant-baseline', 'middle');
             labelText.setAttribute('style', `font-size: ${legendFontSize}px;`);
             labelText.textContent = item.title;
             svg.appendChild(labelText);

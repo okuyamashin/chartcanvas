@@ -1,0 +1,20 @@
+{
+  "chart": {
+    "width": 800,
+    "height": 600,
+    "title": "商品別売上構成比",
+    "subtitle": "2024年度（20カテゴリ）"
+  },
+  "chartType": "pieChart",
+  "pieChart": {
+    "title": "商品別売上構成比",
+    "subtitle": "2024年度（20カテゴリ）",
+    "labelFormat": "category-percentage",
+    "labelPosition": "auto"
+  },
+  "tsv": {
+    "categoryTitle": "カテゴリ名",
+    "valueTitle": "値"
+  }
+}
+
